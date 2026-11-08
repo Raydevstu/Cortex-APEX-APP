@@ -4,7 +4,7 @@
  *
  * Runs against the live daemon (default http://localhost:3000) and verifies
  * every Phase 3 capability end-to-end:
- *   - Daemon health (v0.3.0, phase-3 capability, new counts)
+ *   - Daemon health (≥ v0.3.0, phase-3 capability, new counts)
  *   - Settings round-trip for the local-agent model roles
  *   - Blueprint assets endpoint (3 master prompts + 3 JSON grammars + docs cache)
  *   - HYBRID_PRE_EXECUTE run: Engine 1 contract, all 5 local tools executing
@@ -118,11 +118,12 @@ async function main() {
 
   // ---- 1. Daemon health ----------------------------------------------------
   section('1 · Daemon health — Phase 3')
-  await check('GET /health reports v0.3.0 with the phase-3 capability and new counts', async () => {
+  await check('GET /health reports ≥ v0.3.0 with the phase-3 capability and new counts', async () => {
     const { status, json } = await api('GET', '/health')
     assertEqual(status, 200, 'status')
-    assertEqual(json.version, '0.3.0', 'version')
-    assert(json.phase.includes('Pre-Execution'), 'phase label missing Phase 3')
+    const [major, minor] = json.version.split('.').map(Number)
+    assert(major > 0 || minor >= 3, `version must be >= 0.3.0 (got ${json.version})`)
+    assert(typeof json.phase === 'string' && json.phase.length > 0, 'phase label missing')
     assert(Array.isArray(json.capabilities), 'capabilities array missing')
     for (const capability of ['phase1-brain-prompt-interceptor', 'phase2-cross-platform-sync', 'phase3-pre-execution-agent']) {
       assert(json.capabilities.includes(capability), `capability ${capability} missing`)

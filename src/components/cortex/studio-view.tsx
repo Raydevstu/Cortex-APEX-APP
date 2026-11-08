@@ -78,7 +78,16 @@ const ENGINES: Array<{
   },
 ]
 
-export function StudioView({ initialProjectId, navigate }: { initialProjectId?: string; navigate: (view: View) => void }) {
+export function StudioView({
+  initialProjectId,
+  initialPrompt,
+  navigate,
+}: {
+  initialProjectId?: string
+  /** Phase 4 — prefilled goal (AI CTO "Delegate to Studio" action). */
+  initialPrompt?: string
+  navigate: (view: View) => void
+}) {
   const queryClient = useQueryClient()
   const { data: projectsData } = useQuery({ queryKey: ['projects'], queryFn: cortexApi.projects })
   const { data: settingsData } = useQuery({ queryKey: ['settings'], queryFn: cortexApi.settings })
@@ -86,7 +95,7 @@ export function StudioView({ initialProjectId, navigate }: { initialProjectId?: 
   const projects = projectsData?.projects ?? []
   const [projectIdValue, setProjectId] = useState<string>(initialProjectId ?? '')
   const [engineChoice, setEngineChoice] = useState<StudioEngine | null>(null)
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt ?? '')
   const [result, setResult] = useState<RewriteResult | PreExecResult | null>(null)
 
   // Derived (no effect-synced state): fall back to the first project and the

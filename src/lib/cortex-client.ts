@@ -3,7 +3,10 @@
  * All requests use relative paths (gateway-safe).
  */
 import type {
+  CortexDashboardStateResponse,
   CrossPlatformSyncPacket,
+  CtoAuditResponse,
+  DagPlanDTO,
   DaemonHealth,
   DaemonSettings,
   DashboardMetrics,
@@ -242,6 +245,34 @@ export const cortexApi = {
   timeline: (projectId: string) =>
     api<{ events: TimelineEventRecord[] }>(`/projects/${id2path(projectId)}/timeline`),
   seed: () => api<{ seeded: boolean; message: string }>('/seed', { method: 'POST' }),
+  // ---- Phase 4: Visual Command Center & AI CTO Mode -----------------------
+  commandCenterState: (project?: string) =>
+    api<CortexDashboardStateResponse>(`/state${project ? `?project=${encodeURIComponent(project)}` : ''}`),
+  toggleSymbolScope: (fqn: string, projectId?: string) =>
+    api<CortexDashboardStateResponse>('/state', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'TOGGLE_SYMBOL_SCOPE', fqn, ...(projectId ? { projectId } : {}) }),
+    }),
+  resetScopeLock: (projectId?: string) =>
+    api<CortexDashboardStateResponse>('/state', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'RESET_SCOPE_LOCK', ...(projectId ? { projectId } : {}) }),
+    }),
+  ctoAudit: (project?: string, force = false) => {
+    const search = new URLSearchParams()
+    if (project) search.set('project', project)
+    if (force) search.set('force', 'true')
+    const query = search.toString()
+    return api<CtoAuditResponse & { forced?: boolean }>(`/cto${query ? `?${query}` : ''}`)
+  },
+  ctoBuildPlan: (input: { goal: string; projectId?: string; allowedSymbolFqns?: string[]; triggeredBy?: 'manual' | 'cto-recommendation'; recommendationId?: string }) =>
+    api<{ plan: DagPlanDTO }>('/cto', { method: 'POST', body: JSON.stringify({ action: 'BUILD_DAG_PLAN', ...input }) }),
+  ctoDispatchPlan: (planId: string) =>
+    api<{ plan: DagPlanDTO }>('/cto', { method: 'POST', body: JSON.stringify({ action: 'DISPATCH_PLAN', planId }) }),
+  ctoUpdateSubtask: (planId: string, subtaskId: string, status: 'completed' | 'failed' | 'skipped' | 'pending') =>
+    api<{ plan: DagPlanDTO }>('/cto', { method: 'POST', body: JSON.stringify({ action: 'UPDATE_SUBTASK', planId, subtaskId, status }) }),
+  ctoArchivePlan: (planId: string) =>
+    api<{ plan: DagPlanDTO }>('/cto', { method: 'POST', body: JSON.stringify({ action: 'ARCHIVE_PLAN', planId }) }),
 }
 
 // The timeline is served from the project detail; kept simple here.

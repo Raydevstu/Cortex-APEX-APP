@@ -13,6 +13,7 @@ import path from 'node:path'
 import { db } from '@/lib/db'
 import { ApiError } from './api'
 import { resolveInsideWorkspace } from './local-tools'
+import { fileHasLockedSymbols, getScopeLock } from './scope-lock'
 import { toStagedSummary } from './preexec'
 import type { StagedArtifactSummary } from './types'
 
@@ -79,6 +80,21 @@ export async function applyStagedArtifact(id: string): Promise<{
     }
   }
   const abs = resolveInsideWorkspace(project.rootPath, normalized) // throws on escape
+
+  // --- Phase 4: symbol-level AST Semantic Scope Lock -------------------------
+  // A `modify` of a file containing explicitly locked symbols is blocked with
+  // the locked FQN list so the agent (or developer) can self-correct.
+  if (row.action === 'modify') {
+    const scopeLock = await getScopeLock(row.projectId)
+    const lockedInFile = fileHasLockedSymbols(scopeLock, normalized)
+    if (lockedInFile.length > 0) {
+      throw new ApiError(
+        `Scope guard: "${normalized}" contains explicitly locked symbol(s): ${lockedInFile.join(', ')}. ` +
+        `Unlock them in the Command Center (or via POST /api/cortex/state) before applying a modify.`,
+        422,
+      )
+    }
+  }
 
   let previousContent: string | null = null
   let merged = false

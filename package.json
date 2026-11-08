@@ -1,9 +1,10 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "dev:cc": "next dev -p 4300 2>&1 | tee dev-cc.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
@@ -11,7 +12,11 @@
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "test:p1": "node scripts/test-phase1.mjs",
+    "test:p2": "node scripts/test-phase2.mjs",
+    "test:p3": "node scripts/test-phase3.mjs",
+    "test:p4": "node scripts/test-phase4.mjs"
   },
   "bin": {
     "cortex-mcp": "mcp-server/index.mjs"

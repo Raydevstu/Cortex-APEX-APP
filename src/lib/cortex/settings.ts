@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: DaemonSettings = {
   // Phase 3 — blueprint agentRoutingPolicy.localOllamaModels roles:
   ollamaRouterModel: 'qwen2.5:1.5b', // Engine 1 fastRouter
   ollamaExtractorModel: 'llama3.2:3b', // Engine 3 memoryExtractor
+  cloudEscalationModel: 'claude-sonnet-class', // Phase 4 DAG orchestrator cloud tier label
   searxngUrl: '', // optional SearXNG endpoint for local_docs_search web layer
 }
 
@@ -43,6 +44,9 @@ export async function getSettings(): Promise<DaemonSettings> {
       ollamaExtractorModel: isNonEmptyString(parsed.ollamaExtractorModel)
         ? parsed.ollamaExtractorModel
         : DEFAULT_SETTINGS.ollamaExtractorModel,
+      cloudEscalationModel: isNonEmptyString(parsed.cloudEscalationModel)
+        ? parsed.cloudEscalationModel
+        : DEFAULT_SETTINGS.cloudEscalationModel,
       searxngUrl: typeof parsed.searxngUrl === 'string' ? parsed.searxngUrl.trim().replace(/\/$/, '') : '',
     }
   } catch {
@@ -70,6 +74,9 @@ export async function saveSettings(patch: Partial<DaemonSettings>): Promise<Daem
     ollamaExtractorModel: isNonEmptyString(patch.ollamaExtractorModel)
       ? patch.ollamaExtractorModel.trim()
       : current.ollamaExtractorModel,
+    cloudEscalationModel: isNonEmptyString(patch.cloudEscalationModel)
+      ? patch.cloudEscalationModel.trim()
+      : current.cloudEscalationModel,
     searxngUrl:
       typeof patch.searxngUrl === 'string'
         ? patch.searxngUrl.trim().replace(/\/$/, '')

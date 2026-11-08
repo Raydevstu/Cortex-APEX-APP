@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     const settings = await getSettings()
-    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes, preExecRuns, stagedArtifacts] = await Promise.all([
+    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes, preExecRuns, stagedArtifacts, dagPlans] = await Promise.all([
       db.project.count(),
       db.memory.count(),
       db.graphNode.count(),
@@ -22,23 +22,28 @@ export async function GET() {
       db.interaction.count({ where: { embedding: { not: null } } }),
       db.preExecRun.count(),
       db.stagedArtifact.count(),
+      db.dagPlan.count(),
     ])
     const ollama = await getOllamaStatus(settings.ollamaBaseUrl)
 
     const health: DaemonHealth = {
       status: 'online',
-      version: '0.3.0',
-      phase: 'Phase 3 — Pre-Execution Local Agent & Token Optimizer',
+      version: '0.4.0',
+      phase: 'Phase 4 — Visual Command Center & AI CTO Mode',
       capabilities: [
         'phase1-brain-prompt-interceptor',
         'phase2-cross-platform-sync',
         'phase3-pre-execution-agent',
+        'phase4-visual-command-center',
+        'phase4-ai-cto-mode',
+        'phase4-dag-orchestrator',
+        'phase4-ast-scope-locks',
       ],
       database: 'ok',
       ollama,
       counts: {
         projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes,
-        preExecRuns, stagedArtifacts,
+        preExecRuns, stagedArtifacts, dagPlans,
       },
     }
     return ok(health)

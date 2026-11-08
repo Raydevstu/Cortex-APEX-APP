@@ -1,0 +1,1020 @@
+     1→/**
+     2→ * Pre-Execution Local Agent & Token Optimizer — Phase 3 flagship
+     3→ * (blueprint v2 §6 Weeks 5–6 + Part 2 pipeline, adapted to the daemon).
+     4→ *
+     5→ * Raw prompt
+     6→ *   │
+     7→ *   ▼
+     8→ * ENGINE 1 — Pre-Execution Router & Triage (ollama qwen2.5:1.5b via
+     9→ *            `format: jsonSchema`, deterministic Fast-Path fallback)
+    10→ *   │  RouterDecision: executionMode + localPreExecutionPlan + cloudCoreTaskSpec
+    11→ *   ▼
+    12→ * LOCAL TOOL RUNNER (0 cloud tokens)
+    13→ *   │  ast_symbol_lookup · schema_inspect · local_docs_search ·
+    14→ *   │  scaffold_boilerplate (staged) · git_diff_summary
+    15→ *   ▼
+    16→ * [LOCAL_ONLY → early return: artifacts + staged files, no cloud prompt]
+    17→ *   ▼
+    18→ * ENGINE 2 — Tier-1 Prompt Engineering (ollama qwen2.5-coder:7b via strict
+    19→ *            grammar, deterministic blueprint-format assembler fallback)
+    20→ *   │  finalInjectedMarkdownPrompt + scopeLock + decomposedSubtasks
+    21→ *   ▼
+    22→ * Codex / Hermes / OpenCode / Cursor / Claude
+    23→ *
+    24→ * Every run is persisted (PreExecRun + StagedArtifact rows) and feeds the
+    25→ * Token Savings Engine, the Development Timeline and — through the sync
+    26→ * packet — `continuityState.activeTask.preExecutedByLocalAgent`.
+    27→ */
+    28→import { db } from '@/lib/db'
+    29→import { z } from 'zod'
+    30→import { classifyIntent, splitRequirements } from './intent'
+    31→import { parseDna } from './rewrite'
+    32→import { buildSyncPacket } from './packet'
+    33→import { estimateTokens, estimateTokensOfObject } from './tokens'
+    34→import { getOllamaStatus, ollamaChatStructured } from './ollama'
+    35→import { getSettings } from './settings'
+    36→import { loadPrompt, loadJsonSchema } from './assets'
+    37→import {
+    38→  executeLocalToolStep,
+    39→  type LocalToolStep,
+    40→  type StagedFileSpec,
+    41→  type ToolRunContext,
+    42→} from './local-tools'
+    43→import type {
+    44→  CloudCoreTaskSpec,
+    45→  DecomposedSubtask,
+    46→  ExecutedArtifact,
+    47→  PreExecExecutionMode,
+    48→  PreExecIntentCategory,
+    49→  PreExecPlanStep,
+    50→  PreExecResult,
+    51→  RouterDecision,
+    52→  Tier1RewrittenPrompt,
+    53→} from './types'
+    54→import type { DnaDocument } from './types'
+    55→
+    56→// ---------------------------------------------------------------------------
+    57→// Blueprint grammar validators (mirror cortex-assets/schemas/*.json)
+    58→// ---------------------------------------------------------------------------
+    59→
+    60→const toolNameZod = z.enum([
+    61→  'ast_symbol_lookup',
+    62→  'schema_inspect',
+    63→  'local_docs_search',
+    64→  'scaffold_boilerplate',
+    65→  'git_diff_summary',
+    66→])
+    67→
+    68→const routerDecisionZod = z.object({
+    69→  intentCategory: z.enum([
+    70→    'feature_build', 'bug_fix', 'refactor', 'schema_change', 'architecture', 'test_gen', 'docs',
+    71→  ]),
+    72→  complexityScore: z.number().int().min(1).max(10),
+    73→  executionMode: z.enum(['LOCAL_ONLY', 'HYBRID_PRE_EXECUTE', 'CLOUD_DIRECT_WITH_DNA']),
+    74→  relevantModuleIds: z.array(z.string()),
+    75→  localPreExecutionPlan: z
+    76→    .array(
+    77→      z.object({
+    78→        stepId: z.string().min(1),
+    79→        toolName: toolNameZod,
+    80→        toolArgs: z.record(z.string(), z.string()),
+    81→        expectedArtifact: z.string().min(1),
+    82→      }),
+    83→    )
+    84→    .max(8),
+    85→  cloudCoreTaskSpec: z.object({
+    86→    coreObjective: z.string().min(1),
+    87→    targetFiles: z.array(z.string()),
+    88→    readOnlyReferenceFiles: z.array(z.string()),
+    89→    scopeGuardConstraints: z.array(z.string()),
+    90→  }),
+    91→  estimatedCloudTokensSaved: z.number().int().min(0),
+    92→})
+    93→
+    94→const tier1Zod = z.object({
+    95→  taskTitle: z.string().min(1),
+    96→  targetPlatformOptimized: z.enum(['codex', 'hermes', 'opencode', 'cursor', 'claude', 'generic']),
+    97→  decomposedSubtasks: z.array(
+    98→    z.object({
+    99→      stepNumber: z.number().int().min(1),
+   100→      layer: z.enum(['database', 'backend', 'frontend', 'auth', 'testing']),
+   101→      action: z.string().min(1),
+   102→      handledBy: z.enum(['COMPLETED_BY_LOCAL_OLLAMA', 'ASSIGNED_TO_MAIN_AI']),
+   103→    }),
+   104→  ),
+   105→  scopeLock: z.object({
+   106→    allowedWriteFiles: z.array(z.string()),
+   107→    readOnlyContextFiles: z.array(z.string()),
+   108→    forbiddenPatterns: z.array(z.string()),
+   109→  }),
+   110→  finalInjectedMarkdownPrompt: z.string().min(80),
+   111→})
+   112→
+   113→// ---------------------------------------------------------------------------
+   114→// Public entrypoint
+   115→// ---------------------------------------------------------------------------
+   116→
+   117→export async function runPreExecution(input: {
+   118→  projectId: string
+   119→  prompt: string
+   120→  targetPlatform?: string
+   121→  module?: string
+   122→  useLlm?: boolean
+   123→}): Promise<PreExecResult> {
+   124→  const started = Date.now()
+   125→  const project = await db.project.findUnique({
+   126→    where: { id: input.projectId },
+   127→    include: {
+   128→      dna: true,
+   129→      memories: { orderBy: [{ importance: 'desc' }, { createdAt: 'desc' }] },
+   130→    },
+   131→  })
+   132→  if (!project) throw new Error('Project not found')
+   133→
+   134→  const prompt = input.prompt.trim()
+   135→  if (prompt.length < 3) throw new Error('Prompt is empty')
+   136→
+   137→  const dna = project.dna ? parseDna(project.dna) : null
+   138→  const settings = await getSettings()
+   139→  const targetPlatform = (input.targetPlatform || project.platform || 'codex').trim()
+   140→
+   141→  // Scoped graph context + continuity (same contract as the sync packet,
+   142→  // without recording a handoff — the pre-exec run is the audit record).
+   143→  const packet = await buildSyncPacket(project.id, {
+   144→    targetPlatform,
+   145→    ...(input.module ? { module: input.module } : {}),
+   146→  })
+   147→
+   148→  const ctx: ToolRunContext = { projectId: project.id, rootPath: project.rootPath, dna }
+   149→
+   150→  // ---- ENGINE 1: Pre-Execution Router -------------------------------------
+   151→  let router: RouterDecision
+   152→  let routerEngine = 'deterministic'
+   153→  let routerNote: string | undefined
+   154→
+   155→  const status = await getOllamaStatus(settings.ollamaBaseUrl)
+   156→  const wantLlm = input.useLlm !== false
+   157→
+   158→  if (wantLlm && status.reachable) {
+   159→    try {
+   160→      const raw = await ollamaChatStructured<unknown>(settings.ollamaBaseUrl, {
+   161→        model: settings.ollamaRouterModel,
+   162→        systemPrompt: await loadPrompt('pre-execution-router.system.md'),
+   163→        userPayload: {
+   164→          RAW_USER_PROMPT: prompt,
+   165→          PROJECT_DNA: compactDna(dna),
+   166→          SCOPED_GRAPH_CONTEXT: {
+   167→            activeModule: packet.scopedGraphContext.activeModule,
+   168→            relevantDecisions: packet.scopedGraphContext.relevantDecisions,
+   169→            openBugsInScope: packet.scopedGraphContext.openBugsInScope,
+   170→          },
+   171→        },
+   172→        jsonSchema: await loadJsonSchema('router-decision.schema.json'),
+   173→      })
+   174→      const parsed = routerDecisionZod.safeParse(raw)
+   175→      if (!parsed.success) {
+   176→        throw new Error(`grammar violation: ${parsed.error.issues[0]?.message ?? 'invalid shape'}`)
+   177→      }
+   178→      router = sanitizePlan(parsed.data)
+   179→      routerEngine = `ollama:${settings.ollamaRouterModel}`
+   180→      routerNote = `Engine 1 triaged by local ${settings.ollamaRouterModel} with the RouterDecisionSchema grammar.`
+   181→    } catch (error) {
+   182→      router = deterministicRouter(prompt, dna, packet.scopedGraphContext.activeModule, project.rootPath)
+   183→      routerNote = `Ollama router failed (${error instanceof Error ? error.message : 'unknown error'}) — deterministic Fast-Path triage used.`
+   184→    }
+   185→  } else {
+   186→    router = deterministicRouter(prompt, dna, packet.scopedGraphContext.activeModule, project.rootPath)
+   187→    if (wantLlm) {
+   188→      routerNote = `Ollama at ${settings.ollamaBaseUrl} unreachable (${status.error ?? 'offline'}) — deterministic Fast-Path triage used (blueprint §4 Fast-Path, <800ms).`
+   189→    }
+   190→  }
+   191→
+   192→  // ---- LOCAL TOOL RUNNER (0 cloud tokens) ---------------------------------
+   193→  const planStart = Date.now()
+   194→  const artifacts: ExecutedArtifact[] = []
+   195→  const stagedSpecs: StagedFileSpec[] = []
+   196→
+   197→  for (const step of router.localPreExecutionPlan) {
+   198→    const artifact = await executeLocalToolStep(step, ctx)
+   199→    artifacts.push({
+   200→      stepId: artifact.stepId,
+   201→      toolName: artifact.toolName,
+   202→      ok: artifact.ok,
+   203→      durationMs: artifact.durationMs,
+   204→      summary: artifact.summary,
+   205→      data: artifact.data,
+   206→      stagedFileCount: artifact.staged.length,
+   207→      ...(artifact.error ? { error: artifact.error } : {}),
+   208→    })
+   209→    stagedSpecs.push(...artifact.staged)
+   210→  }
+   211→  const localToolMs = Date.now() - planStart
+   212→
+   213→  // ---- Token accounting (grounded in real artifact sizes) ------------------
+   214→  const artifactTokens = artifacts.reduce((sum, a) => sum + estimateTokensOfObject(a.data), 0)
+   215→  const stagedTokens = stagedSpecs.reduce((sum, s) => sum + estimateTokens(s.content), 0)
+   216→  const naiveContextTokens = estimateTokensOfObject({
+   217→    dna: dna ?? 'none',
+   218→    memories: project.memories.map((m) => ({ type: m.type, key: m.key, value: m.value })),
+   219→    codeMap: dna?.fileStats.codeMap ?? [],
+   220→  })
+   221→
+   222→  // ---- LOCAL_ONLY early return (blueprint: 100% solvable locally) ----------
+   223→  if (router.executionMode === 'LOCAL_ONLY') {
+   224→    const compactContextTokens = artifactTokens + stagedTokens
+   225→    const tokensSavedCloud =
+   226→      router.complexityScore * 350 + // the whole implementation the cloud never writes
+   227→      stagedTokens * 1.2 +
+   228→      Math.max(0, naiveContextTokens - compactContextTokens)
+   229→
+   230→    const run = await persistRun({
+   231→      projectId: project.id,
+   232→      rawPrompt: prompt,
+   233→      targetPlatform,
+   234→      router,
+   235→      routerEngine,
+   236→      artifacts,
+   237→      tier1: null,
+   238→      injectedPrompt: null,
+   239→      handledLocally: true,
+   240→      tokensSavedCloud: Math.round(tokensSavedCloud),
+   241→      tokensContextAvoided: Math.max(0, naiveContextTokens - compactContextTokens),
+   242→      durationMs: Date.now() - started,
+   243→      stagedSpecs,
+   244→    })
+   245→
+   246→    return {
+   247→      runId: run.id,
+   248→      handledCompletelyLocally: true,
+   249→      router,
+   250→      routerEngine,
+   251→      ...(routerNote ? { routerNote } : {}),
+   252→      tier1Engine: 'deterministic',
+   253→      artifacts,
+   254→      tier1: null,
+   255→      injectedPrompt: null,
+   256→      staged: run.staged,
+   257→      metrics: {
+   258→        tokensRaw: estimateTokens(prompt),
+   259→        tokensSavedCloud: Math.round(tokensSavedCloud),
+   260→        tokensContextAvoided: Math.max(0, naiveContextTokens - compactContextTokens),
+   261→        localToolMs,
+   262→        durationMs: Date.now() - started,
+   263→        scaffoldedFiles: stagedSpecs.length,
+   264→      },
+   265→    }
+   266→  }
+   267→
+   268→  // ---- ENGINE 2: Tier-1 Prompt Engineering ---------------------------------
+   269→  let tier1: Tier1RewrittenPrompt
+   270→  let tier1Engine = 'deterministic'
+   271→  let tier1Note: string | undefined
+   272→
+   273→  const localArtifactsPayload = artifacts.map((a) => ({
+   274→    tool: a.toolName,
+   275→    summary: a.summary,
+   276→    data: a.data,
+   277→  }))
+   278→
+   279→  if (wantLlm && status.reachable) {
+   280→    try {
+   281→      const raw = await ollamaChatStructured<unknown>(settings.ollamaBaseUrl, {
+   282→        model: settings.ollamaModel,
+   283→        systemPrompt: await loadPrompt('tier1-prompt-engineer.system.md'),
+   284→        userPayload: {
+   285→          RAW_USER_PROMPT: prompt,
+   286→          TARGET_PLATFORM: targetPlatform,
+   287→          PROJECT_DNA: compactDna(dna),
+   288→          SCOPED_GRAPH_CONTEXT: packet.scopedGraphContext,
+   289→          CONTINUITY_STATE: packet.continuityState,
+   290→          LOCAL_PRE_EXECUTION_ARTIFACTS: localArtifactsPayload,
+   291→          STAGED_FILES: stagedSpecs.map((s) => ({ path: s.targetPath, kind: s.kind, action: s.action })),
+   292→          ROUTER_CORE_SPEC: router.cloudCoreTaskSpec,
+   293→        },
+   294→        jsonSchema: await loadJsonSchema('tier1-rewritten-prompt.schema.json'),
+   295→      })
+   296→      const parsed = tier1Zod.safeParse(raw)
+   297→      if (!parsed.success) {
+   298→        throw new Error(`grammar violation: ${parsed.error.issues[0]?.message ?? 'invalid shape'}`)
+   299→      }
+   300→      tier1 = parsed.data
+   301→      tier1Engine = `ollama:${settings.ollamaModel}`
+   302→      tier1Note = `Engine 2 specification composed by local ${settings.ollamaModel} under the Tier1RewrittenPromptSchema grammar.`
+   303→    } catch (error) {
+   304→      tier1 = assembleDeterministicTier1({
+   305→        projectName: project.name,
+   306→        prevPlatform: packet.header.previousPlatform,
+   307→        targetPlatform,
+   308→        prompt,
+   309→        router,
+   310→        artifacts,
+   311→        stagedSpecs,
+   312→        dna,
+   313→        packetMarkdownStack: packet.dnaSnapshot.stackSummary,
+   314→        continuity: packet.continuityState.lastCompletedAction,
+   315→        scopedSymbols: packet.scopedGraphContext.relevantSymbols,
+   316→      })
+   317→      tier1Note = `Ollama prompt-engineer failed (${error instanceof Error ? error.message : 'unknown error'}) — deterministic blueprint-format assembler used.`
+   318→    }
+   319→  } else {
+   320→    tier1 = assembleDeterministicTier1({
+   321→      projectName: project.name,
+   322→      prevPlatform: packet.header.previousPlatform,
+   323→      targetPlatform,
+   324→      prompt,
+   325→      router,
+   326→      artifacts,
+   327→      stagedSpecs,
+   328→      dna,
+   329→      packetMarkdownStack: packet.dnaSnapshot.stackSummary,
+   330→      continuity: packet.continuityState.lastCompletedAction,
+   331→      scopedSymbols: packet.scopedGraphContext.relevantSymbols,
+   332→    })
+   333→    if (wantLlm) {
+   334→      tier1Note = `Ollama unreachable — deterministic blueprint-format assembler used (Fast-Path).`
+   335→    }
+   336→  }
+   337→
+   338→  const tokensContextAvoided = Math.max(
+   339→    0,
+   340→    naiveContextTokens - estimateTokens(tier1.finalInjectedMarkdownPrompt),
+   341→  )
+   342→  // Grounded estimate: the inspections/boilerplate the cloud no longer performs
+   343→  // (artifact + staged tokens) plus the context it no longer has to re-read.
+   344→  const tokensSavedCloud = artifactTokens + stagedTokens * 1.2 + tokensContextAvoided
+   345→
+   346→  const run = await persistRun({
+   347→    projectId: project.id,
+   348→    rawPrompt: prompt,
+   349→    targetPlatform,
+   350→    router,
+   351→    routerEngine,
+   352→    artifacts,
+   353→    tier1,
+   354→    injectedPrompt: tier1.finalInjectedMarkdownPrompt,
+   355→    handledLocally: false,
+   356→    tokensSavedCloud: Math.round(tokensSavedCloud),
+   357→    tokensContextAvoided,
+   358→    durationMs: Date.now() - started,
+   359→    stagedSpecs,
+   360→  })
+   361→
+   362→  return {
+   363→    runId: run.id,
+   364→    handledCompletelyLocally: false,
+   365→    router,
+   366→    routerEngine,
+   367→    ...(routerNote ? { routerNote } : {}),
+   368→    tier1Engine,
+   369→    ...(tier1Note ? { tier1Note } : {}),
+   370→    artifacts,
+   371→    tier1,
+   372→    injectedPrompt: tier1.finalInjectedMarkdownPrompt,
+   373→    staged: run.staged,
+   374→    metrics: {
+   375→      tokensRaw: estimateTokens(prompt),
+   376→      tokensSavedCloud: Math.round(tokensSavedCloud),
+   377→      tokensContextAvoided,
+   378→      localToolMs,
+   379→      durationMs: Date.now() - started,
+   380→      scaffoldedFiles: stagedSpecs.length,
+   381→    },
+   382→  }
+   383→}
+   384→
+   385→// ---------------------------------------------------------------------------
+   386→// Deterministic Engine 1 — the Fast-Path triage (blueprint §4, <800ms)
+   387→// ---------------------------------------------------------------------------
+   388→
+   389→const INTENT_TO_CATEGORY: Record<string, PreExecIntentCategory> = {
+   390→  feature_build: 'feature_build',
+   391→  bugfix: 'bug_fix',
+   392→  refactor: 'refactor',
+   393→  research: 'architecture',
+   394→  config: 'schema_change',
+   395→  boilerplate: 'schema_change',
+   396→  question: 'architecture',
+   397→  docs: 'docs',
+   398→  deploy: 'architecture',
+   399→  test: 'test_gen',
+   400→}
+   401→
+   402→const LOCAL_ONLY_HINT =
+   403→  /\b(zod|schema|type|types|interface|scaffold|boilerplate|stub|skeleton|rename|barrel|docstring|documentation|comments?|test stubs?)\b/i
+   404→
+   405→const DOCS_TOPICS: Array<{ re: RegExp; query: string }> = [
+   406→  { re: /\bstripe|webhook|subscription|billing|invoice|payment/i, query: 'stripe webhook signature verification subscription events idempotency' },
+   407→  { re: /\bprisma|schema|migration|model\b|database|\bdb\b/i, query: 'prisma schema model fields relations index' },
+   408→  { re: /\broute|endpoint|handler|api\b|next\.?js/i, query: 'nextjs app router route handler validation envelope' },
+   409→  { re: /\bzod|validation/i, query: 'zod schema validation safeParse types' },
+   410→]
+   411→
+   412→const ENV_KEYS_BY_TOPIC: Array<{ re: RegExp; keys: string[] }> = [
+   413→  { re: /\bstripe|webhook|subscription|billing|invoice|payment/i, keys: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'] },
+   414→  { re: /\bclerk|auth|login|sign[- ]?in|session/i, keys: ['CLERK_SECRET_KEY', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY'] },
+   415→]
+   416→
+   417→function deterministicRouter(
+   418→  prompt: string,
+   419→  dna: DnaDocument | null,
+   420→  activeModule: string,
+   421→  rootPath: string | null,
+   422→): RouterDecision {
+   423→  const intent = classifyIntent(prompt)
+   424→  const category = INTENT_TO_CATEGORY[intent.intent] ?? 'feature_build'
+   425→  const complexity = intent.complexity
+   426→  const domains = intent.domains
+   427→
+   428→  // --- execution mode (blueprint routing rules, rule 1 + complexity bands)
+   429→  let executionMode: PreExecExecutionMode
+   430→  if ((LOCAL_ONLY_HINT.test(prompt) || category === 'docs' || category === 'schema_change') && complexity <= 4) {
+   431→    executionMode = 'LOCAL_ONLY'
+   432→  } else if (complexity <= 3) {
+   433→    executionMode = 'LOCAL_ONLY'
+   434→  } else if (complexity <= 7 || domains.length <= 2) {
+   435→    executionMode = 'HYBRID_PRE_EXECUTE'
+   436→  } else {
+   437→    executionMode = 'CLOUD_DIRECT_WITH_DNA'
+   438→  }
+   439→  if (category === 'test_gen' && complexity <= 4) executionMode = 'LOCAL_ONLY'
+   440→
+   441→  // --- workspace facts
+   442→  const prismaModels = dna?.fileStats.prismaModels ?? []
+   443→  const codeMap = dna?.fileStats.codeMap ?? []
+   444→  const mentionedModel = findMentionedModel(prompt, prismaModels)
+   445→  const targetRoute = inferTargetRoute(prompt)
+   446→  const similarFiles = matchCodeMap(codeMap, prompt)
+   447→
+   448→  // --- plan construction (always cheap-first: git state, then inspections)
+   449→  const plan: PreExecPlanStep[] = []
+   450→  if (rootPath) {
+   451→    plan.push({
+   452→      stepId: 'git-state',
+   453→      toolName: 'git_diff_summary',
+   454→      toolArgs: {},
+   455→      expectedArtifact: 'Uncommitted workspace changes to keep the scope guard honest',
+   456→    })
+   457→  }
+   458→  if (mentionedModel || domains.includes('database') || /schema|model|migration|\bdb\b/i.test(prompt)) {
+   459→    plan.push({
+   460→      stepId: 'schema-inspect',
+   461→      toolName: 'schema_inspect',
+   462→      toolArgs: mentionedModel ? { modelName: mentionedModel } : {},
+   463→      expectedArtifact: mentionedModel
+   464→        ? `Exact ${mentionedModel} model fields, types and attributes`
+   465→        : 'Available Prisma models for scope selection',
+   466→    })
+   467→  }
+   468→  const astTarget =
+   469→    similarFiles[0] ?? targetRoute ?? (mentionedModel ? `prisma/schema.prisma` : null)
+   470→  if (astTarget) {
+   471→    plan.push({
+   472→      stepId: 'ast-lookup',
+   473→      toolName: 'ast_symbol_lookup',
+   474→      toolArgs: { filePath: astTarget },
+   475→      expectedArtifact: `Exact symbol signatures and line numbers in ${astTarget}`,
+   476→    })
+   477→  }
+   478→  const docsTopic = DOCS_TOPICS.find((t) => t.re.test(prompt))
+   479→  if (docsTopic) {
+   480→    plan.push({
+   481→      stepId: 'docs-search',
+   482→      toolName: 'local_docs_search',
+   483→      toolArgs: { query: docsTopic.query },
+   484→      expectedArtifact: `Cached SDK syntax for: ${docsTopic.query}`,
+   485→    })
+   486→  }
+   487→
+   488→  // --- scaffolds (only when they carry real signal)
+   489→  if (mentionedModel && (executionMode === 'LOCAL_ONLY' || executionMode === 'HYBRID_PRE_EXECUTE')) {
+   490→    plan.push({
+   491→      stepId: 'scaffold-zod',
+   492→      toolName: 'scaffold_boilerplate',
+   493→      toolArgs: { kind: 'zod-schema', modelName: mentionedModel },
+   494→      expectedArtifact: `Staged Zod validation schema for ${mentionedModel}`,
+   495→    })
+   496→    if (executionMode === 'LOCAL_ONLY') {
+   497→      plan.push({
+   498→        stepId: 'scaffold-types',
+   499→        toolName: 'scaffold_boilerplate',
+   500→        toolArgs: { kind: 'ts-types', modelName: mentionedModel },
+   501→        expectedArtifact: `Staged TypeScript interface for ${mentionedModel}`,
+   502→      })
+   503→    }
+   504→  }
+   505→  if (targetRoute && (executionMode === 'HYBRID_PRE_EXECUTE' || category === 'feature_build') && complexity >= 4) {
+   506→    plan.push({
+   507→      stepId: 'scaffold-route',
+   508→      toolName: 'scaffold_boilerplate',
+   509→      toolArgs: { kind: 'route-stub', name: routeName(prompt) ?? 'resource', targetFile: targetRoute },
+   510→      expectedArtifact: `Staged ${targetRoute} handler skeleton with the validation envelope`,
+   511→    })
+   512→  }
+   513→  const envKeys = ENV_KEYS_BY_TOPIC.find((t) => t.re.test(prompt))?.keys
+   514→  if (envKeys && executionMode !== 'CLOUD_DIRECT_WITH_DNA') {
+   515→    plan.push({
+   516→      stepId: 'scaffold-env',
+   517→      toolName: 'scaffold_boilerplate',
+   518→      toolArgs: { kind: 'env-example', keys: envKeys.join(' ') },
+   519→      expectedArtifact: `Staged .env.example key names: ${envKeys.join(', ')}`,
+   520→    })
+   521→  }
+   522→
+   523→  // --- cloud core task spec
+   524→  const targetFiles = [...new Set([targetRoute, ...similarFiles.slice(0, 1)].filter(Boolean) as string[])]
+   525→  const readOnlyReferenceFiles = [
+   526→    ...new Set([
+   527→      ...(mentionedModel || domains.includes('database') ? ['prisma/schema.prisma'] : []),
+   528→      ...similarFiles.slice(0, 3),
+   529→    ]),
+   530→  ]
+   531→  const coreObjective = sentenceCase(prompt.replace(/\s+/g, ' ').trim())
+   532→
+   533→  const scopeGuardConstraints: string[] = []
+   534→  if (dna) {
+   535→    dna.codingStandards.slice(0, 4).forEach((s) => scopeGuardConstraints.push(`${s.rule} (${s.source})`))
+   536→    if (dna.designPatterns.length > 0) {
+   537→      scopeGuardConstraints.push(`Follow established patterns: ${dna.designPatterns.slice(0, 3).join('; ')}`)
+   538→    }
+   539→  }
+   540→  scopeGuardConstraints.push('Zero `any` types; production error handling on every new path; no stubs or TODO comments.')
+   541→  if (executionMode === 'HYBRID_PRE_EXECUTE') {
+   542→    scopeGuardConstraints.push('Build on the staged artifacts — do not regenerate files already staged by the local agent.')
+   543→  }
+   544→
+   545→  const relevantModuleIds = [...new Set([activeModule, ...domains.map(sentenceCase)])].filter(Boolean)
+   546→
+   547→  // --- grounded token estimate (what the main AI no longer has to do)
+   548→  const estimatedCloudTokensSaved =
+   549→    executionMode === 'LOCAL_ONLY'
+   550→      ? complexity * 350
+   551→      : Math.round(
+   552→          (plan.length * 180 + // inspections the cloud skips
+   553→            (mentionedModel ? 320 : 0) +
+   554→            (targetRoute ? 420 : 0) + // boilerplate it must not write
+   555→            (envKeys ? 60 : 0)) as number,
+   556→        )
+   557→
+   558→  return {
+   559→    intentCategory: category,
+   560→    complexityScore: complexity,
+   561→    executionMode,
+   562→    relevantModuleIds,
+   563→    localPreExecutionPlan: plan,
+   564→    cloudCoreTaskSpec: {
+   565→      coreObjective,
+   566→      targetFiles: targetFiles.length > 0 ? targetFiles : ['(inferred during execution)'],
+   567→      readOnlyReferenceFiles,
+   568→      scopeGuardConstraints,
+   569→    },
+   570→    estimatedCloudTokensSaved,
+   571→  }
+   572→}
+   573→
+   574→/** LLM-produced plans are trimmed to safe size and always get the cheap git
+   575→ * state step prepended when missing (AST Scope Guard rule 3 hygiene). */
+   576→function sanitizePlan(decision: RouterDecision): RouterDecision {
+   577→  const plan = decision.localPreExecutionPlan.slice(0, 8)
+   578→  if (!plan.some((s) => s.toolName === 'git_diff_summary')) {
+   579→    plan.unshift({
+   580→      stepId: 'git-state',
+   581→      toolName: 'git_diff_summary',
+   582→      toolArgs: {},
+   583→      expectedArtifact: 'Uncommitted workspace changes to keep the scope guard honest',
+   584→    })
+   585→  }
+   586→  return { ...decision, localPreExecutionPlan: plan.slice(0, 8) }
+   587→}
+   588→
+   589→// ---------------------------------------------------------------------------
+   590→// Deterministic Engine 2 — blueprint-format Tier-1 assembler
+   591→// ---------------------------------------------------------------------------
+   592→
+   593→function assembleDeterministicTier1(args: {
+   594→  projectName: string
+   595→  prevPlatform: string
+   596→  targetPlatform: string
+   597→  prompt: string
+   598→  router: RouterDecision
+   599→  artifacts: ExecutedArtifact[]
+   600→  stagedSpecs: StagedFileSpec[]
+   601→  dna: DnaDocument | null
+   602→  packetMarkdownStack: string
+   603→  continuity: string
+   604→  scopedSymbols: Array<{ symbolId: string; signature: string }>
+   605→}): Tier1RewrittenPrompt {
+   606→  const { router, artifacts, stagedSpecs, dna } = args
+   607→  const stateHash = hashString(`${args.projectName}|${Date.now()}`).slice(0, 6)
+   608→  const out: string[] = []
+   609→
+   610→  // -- [CORTEX-OS SYNC] header (blueprint example, exact markers)
+   611→  out.push(
+   612→    `[CORTEX-OS SYNC | Project: ${args.projectName} | State: #${stateHash} | Prev: ${args.prevPlatform} -> Target: ${args.targetPlatform}]`,
+   613→  )
+   614→  out.push(`- Stack: ${args.packetMarkdownStack}.`)
+   615→  out.push(`- Continuity: ${shorten(args.continuity, 150)}`)
+   616→  out.push(
+   617→    `- Triage: ${router.intentCategory}, complexity ${router.complexityScore}/10 → execution mode ${router.executionMode}.`,
+   618→  )
+   619→  out.push('')
+   620→
+   621→  // -- [PRE-EXECUTED BY CORTEX LOCAL AGENT — DO NOT REGENERATE]
+   622→  out.push('[PRE-EXECUTED BY CORTEX LOCAL AGENT — DO NOT REGENERATE]')
+   623→  let index = 0
+   624→  for (const artifact of artifacts.filter((a) => a.ok && a.toolName !== 'scaffold_boilerplate')) {
+   625→    index += 1
+   626→    switch (artifact.toolName) {
+   627→      case 'ast_symbol_lookup': {
+   628→        const symbols = (artifact.data.symbols as Array<{ name: string; line: number; signature: string }> | undefined) ?? []
+   629→        out.push(
+   630→          `${index}. ${artifact.data.file} [~${artifact.data.lines}L]: ${symbols
+   631→            .slice(0, 4)
+   632→            .map((s) => `${s.name} (L${s.line})`)
+   633→            .join(', ') || 'no symbols'} verified via AST lookup.`,
+   634→        )
+   635→        break
+   636→      }
+   637→      case 'schema_inspect': {
+   638→        const fields = (artifact.data.fields as Array<{ name: string; type: string }> | undefined) ?? []
+   639→        out.push(
+   640→          `${index}. Prisma ${artifact.data.modelName ?? 'schema'} inspected (${artifact.data.schemaPath}): ${fields
+   641→            .slice(0, 8)
+   642→            .map((f) => `${f.name}: ${f.type}`)
+   643→            .join(', ')}${fields.length > 8 ? '…' : ''}.`,
+   644→        )
+   645→        break
+   646→      }
+   647→      case 'local_docs_search': {
+   648→        const results = (artifact.data.results as Array<{ file: string; heading: string }> | undefined) ?? []
+   649→        out.push(
+   650→          `${index}. SDK reference pulled from the local docs cache: ${results
+   651→            .slice(0, 2)
+   652→            .map((r) => `${r.file}#${r.heading}`)
+   653→            .join('; ') || artifact.summary}.`,
+   654→        )
+   655→        break
+   656→      }
+   657→      case 'git_diff_summary': {
+   658→        out.push(`${index}. Workspace state: ${artifact.summary}.`)
+   659→        break
+   660→      }
+   661→      default:
+   662→        out.push(`${index}. ${artifact.summary}.`)
+   663→    }
+   664→  }
+   665→  for (const spec of stagedSpecs) {
+   666→    index += 1
+   667→    out.push(
+   668→      `${index}. STAGED ${spec.action === 'create' ? 'new file' : 'update'} ${spec.targetPath} (${spec.kind}) — review & apply from the Cortex staging area before/after this task.`,
+   669→    )
+   670→  }
+   671→  if (artifacts.some((a) => !a.ok)) {
+   672→    index += 1
+   673→    out.push(
+   674→      `${index}. Note: ${artifacts.filter((a) => !a.ok).length} local step(s) could not complete (${artifacts
+   675→        .filter((a) => !a.ok)
+   676→        .map((a) => `${a.toolName}: ${a.error ?? 'failed'}`)
+   677→        .join('; ')}) — treat those facts as unverified.`,
+   678→    )
+   679→  }
+   680→  out.push('')
+   681→
+   682→  // -- [AST SCOPE GUARD & ARCHITECTURE LOCK]
+   683→  out.push('[AST SCOPE GUARD & ARCHITECTURE LOCK]')
+   684→  const allowed = [
+   685→    ...new Set([
+   686→      ...router.cloudCoreTaskSpec.targetFiles,
+   687→      ...stagedSpecs.map((s) => s.targetPath),
+   688→    ]),
+   689→  ].filter((p) => p && p !== '(inferred during execution)')
+   690→  out.push('- ALLOWED WRITE paths:')
+   691→  for (const p of allowed) out.push(`  • ${p}`)
+   692→  if (allowed.length === 0) out.push('  • (files inferred by the executing agent — keep the change surface minimal)')
+   693→  const protectedPaths = [
+   694→    ...new Set([
+   695→      'prisma/schema.prisma',
+   696→      '.env',
+   697→      '.env.local',
+   698→      'src/middleware.ts',
+   699→      ...(dna ? dna.fileStats.codeMap.slice(0, 2).map((c) => c.path) : []),
+   700→    ]),
+   701→  ].filter((p) => !allowed.includes(p))
+   702→  out.push(`- PROTECTED (DO NOT MODIFY): ${protectedPaths.join(', ')}`)
+   703→  out.push('- IMMUTABLE CONSTRAINTS:')
+   704→  for (const constraint of router.cloudCoreTaskSpec.scopeGuardConstraints) out.push(`  • ${constraint}`)
+   705→  if (args.scopedSymbols.length > 0) {
+   706→    out.push('- Scoped symbols (Knowledge Graph, active module):')
+   707→    for (const symbol of args.scopedSymbols.slice(0, 5)) {
+   708→      out.push(`  • ${symbol.symbolId} — ${shorten(symbol.signature, 90)}`)
+   709→    }
+   710→  }
+   711→  out.push('')
+   712→
+   713→  // -- [CORE EXECUTION SPECIFICATION FOR <PLATFORM>]
+   714→  out.push(`[CORE EXECUTION SPECIFICATION FOR ${args.targetPlatform.toUpperCase()}]`)
+   715→  const requirements = splitRequirements(args.prompt)
+   716→  requirements.forEach((requirement, i) => {
+   717→    out.push(`${i + 1}. ${sentenceCase(requirement)}.`)
+   718→  })
+   719→  out.push(
+   720→    `${requirements.length + 1}. Core objective (from the router): ${router.cloudCoreTaskSpec.coreObjective}.`,
+   721→  )
+   722→  if (router.cloudCoreTaskSpec.readOnlyReferenceFiles.length > 0) {
+   723→    out.push(
+   724→      `- Read-only references (do not re-scan the tree): ${router.cloudCoreTaskSpec.readOnlyReferenceFiles.join(', ')}.`,
+   725→    )
+   726→  }
+   727→  out.push('')
+   728→
+   729→  // -- [VERIFICATION CRITERIA]
+   730→  out.push('[VERIFICATION CRITERIA]')
+   731→  out.push('- Every requirement above is implemented and demonstrably working (no placeholders, no stubs).')
+   732→  out.push('- No file outside ALLOWED WRITE paths is modified.')
+   733→  out.push('- Error paths return the project error envelope; new public input is schema-validated.')
+   734→  out.push('- List every file created/modified with a one-line rationale.')
+   735→
+   736→  // -- decomposed subtasks (blueprint Tier1RewrittenPromptSchema)
+   737→  const layerFor = (domain: string): DecomposedSubtask['layer'] => {
+   738→    if (domain === 'database') return 'database'
+   739→    if (domain === 'auth') return 'auth'
+   740→    if (domain === 'frontend') return 'frontend'
+   741→    if (domain === 'testing') return 'testing'
+   742→    return 'backend'
+   743→  }
+   744→  const domains = router.relevantModuleIds.map((m) => m.toLowerCase())
+   745→  const subtasks: DecomposedSubtask[] = []
+   746→  let stepNumber = 1
+   747→  for (const artifact of artifacts.filter((a) => a.ok)) {
+   748→    subtasks.push({
+   749→      stepNumber: stepNumber++,
+   750→      layer: artifact.toolName === 'schema_inspect' ? 'database' : 'backend',
+   751→      action: `${artifact.toolName}: ${artifact.summary}`,
+   752→      handledBy: 'COMPLETED_BY_LOCAL_OLLAMA',
+   753→    })
+   754→  }
+   755→  for (const spec of stagedSpecs) {
+   756→    subtasks.push({
+   757→      stepNumber: stepNumber++,
+   758→      layer: spec.kind === 'zod-schema' || spec.kind === 'ts-types' ? 'backend' : 'backend',
+   759→      action: `Staged ${spec.kind} at ${spec.targetPath} (apply from the Cortex staging area)`,
+   760→      handledBy: 'COMPLETED_BY_LOCAL_OLLAMA',
+   761→    })
+   762→  }
+   763→  requirements.slice(0, 6).forEach((requirement) => {
+   764→    subtasks.push({
+   765→      stepNumber: stepNumber++,
+   766→      layer: layerFor(domains.find(() => true) ?? 'backend'),
+   767→      action: sentenceCase(requirement),
+   768→      handledBy: 'ASSIGNED_TO_MAIN_AI',
+   769→    })
+   770→  })
+   771→
+   772→  return {
+   773→    taskTitle: shorten(router.cloudCoreTaskSpec.coreObjective, 90),
+   774→    targetPlatformOptimized: mapPlatform(args.targetPlatform),
+   775→    decomposedSubtasks: subtasks,
+   776→    scopeLock: {
+   777→      allowedWriteFiles: allowed,
+   778→      readOnlyContextFiles: router.cloudCoreTaskSpec.readOnlyReferenceFiles,
+   779→      forbiddenPatterns: router.cloudCoreTaskSpec.scopeGuardConstraints,
+   780→    },
+   781→    finalInjectedMarkdownPrompt: out.join('\n'),
+   782→  }
+   783→}
+   784→
+   785→// ---------------------------------------------------------------------------
+   786→// Persistence
+   787→// ---------------------------------------------------------------------------
+   788→
+   789→async function persistRun(input: {
+   790→  projectId: string
+   791→  rawPrompt: string
+   792→  targetPlatform: string
+   793→  router: RouterDecision
+   794→  routerEngine: string
+   795→  artifacts: ExecutedArtifact[]
+   796→  tier1: Tier1RewrittenPrompt | null
+   797→  injectedPrompt: string | null
+   798→  handledLocally: boolean
+   799→  tokensSavedCloud: number
+   800→  tokensContextAvoided: number
+   801→  durationMs: number
+   802→  stagedSpecs: StagedFileSpec[]
+   803→}): Promise<{ id: string; staged: PreExecResult['staged'] }> {
+   804→  const run = await db.preExecRun.create({
+   805→    data: {
+   806→      projectId: input.projectId,
+   807→      rawPrompt: input.rawPrompt.slice(0, 8000),
+   808→      targetPlatform: input.targetPlatform,
+   809→      intentCategory: input.router.intentCategory,
+   810→      complexityScore: input.router.complexityScore,
+   811→      executionMode: input.router.executionMode,
+   812→      routerEngine: input.routerEngine,
+   813→      routerDecision: JSON.stringify(input.router),
+   814→      artifacts: JSON.stringify(input.artifacts.map((a) => ({ ...a, data: boundArtifactData(a.data) }))),
+   815→      cloudCoreTaskSpec: JSON.stringify(input.router.cloudCoreTaskSpec),
+   816→      tier1: input.tier1 ? JSON.stringify(input.tier1) : null,
+   817→      injectedPrompt: input.injectedPrompt,
+   818→      handledLocally: input.handledLocally,
+   819→      tokensSavedCloud: Math.max(0, Math.round(input.tokensSavedCloud)),
+   820→      tokensContextAvoided: Math.max(0, Math.round(input.tokensContextAvoided)),
+   821→      durationMs: input.durationMs,
+   822→      stagedCount: input.stagedSpecs.length,
+   823→    },
+   824→  })
+   825→
+   826→  const stagedRows: PreExecResult['staged'] = []
+   827→  const seenTargets = new Set<string>()
+   828→  for (const spec of input.stagedSpecs) {
+   829→    if (seenTargets.has(spec.targetPath)) continue
+   830→    seenTargets.add(spec.targetPath)
+   831→    const row = await db.stagedArtifact.create({
+   832→      data: {
+   833→        projectId: input.projectId,
+   834→        runId: run.id,
+   835→        toolName: 'scaffold_boilerplate',
+   836→        kind: spec.kind,
+   837→        action: spec.action,
+   838→        targetPath: spec.targetPath,
+   839→        content: spec.content,
+   840→        rationale: spec.rationale,
+   841→        language: spec.language,
+   842→        status: 'staged',
+   843→      },
+   844→    })
+   845→    stagedRows.push(toStagedSummary(row))
+   846→  }
+   847→
+   848→  const okCount = input.artifacts.filter((a) => a.ok).length
+   849→  await db.timelineEvent.create({
+   850→    data: {
+   851→      projectId: input.projectId,
+   852→      kind: input.handledLocally ? 'preexec.local_only' : 'preexec.run',
+   853→      message: input.handledLocally
+   854→        ? `Pre-execution agent completed the task entirely locally: ${input.artifacts.length} tool step(s), ${input.stagedSpecs.length} file(s) staged, ~${Math.round(input.tokensSavedCloud)} cloud tokens saved.`
+   855→        : `Pre-execution agent finished ${okCount}/${input.artifacts.length} local step(s) (${input.router.executionMode}) and composed the Tier-1 ${input.targetPlatform} specification — ~${Math.round(input.tokensSavedCloud)} cloud tokens saved.`,
+   856→      meta: JSON.stringify({
+   857→        runId: run.id,
+   858→        executionMode: input.router.executionMode,
+   859→        intentCategory: input.router.intentCategory,
+   860→        routerEngine: input.routerEngine,
+   861→      }),
+   862→    },
+   863→  })
+   864→
+   865→  return { id: run.id, staged: stagedRows }
+   866→}
+   867→
+   868→function toStagedSummary(row: {
+   869→  id: string
+   870→  runId: string
+   871→  kind: string
+   872→  action: string
+   873→  targetPath: string
+   874→  rationale: string
+   875→  language: string
+   876→  status: string
+   877→  content: string
+   878→  appliedAt: Date | null
+   879→  createdAt: Date
+   880→}): PreExecResult['staged'][number] {
+   881→  return {
+   882→    id: row.id,
+   883→    runId: row.runId,
+   884→    kind: row.kind,
+   885→    action: row.action,
+   886→    targetPath: row.targetPath,
+   887→    rationale: row.rationale,
+   888→    language: row.language,
+   889→    status: (['staged', 'applied', 'discarded'].includes(row.status) ? row.status : 'staged') as
+   890→      | 'staged'
+   891→      | 'applied'
+   892→      | 'discarded',
+   893→    contentLength: row.content.length,
+   894→    appliedAt: row.appliedAt ? row.appliedAt.toISOString() : null,
+   895→    createdAt: row.createdAt.toISOString(),
+   896→  }
+   897→}
+   898→
+   899→// ---------------------------------------------------------------------------
+   900→// Helpers
+   901→// ---------------------------------------------------------------------------
+   902→
+   903→function compactDna(dna: DnaDocument | null): Record<string, unknown> {
+   904→  if (!dna) return { note: 'no DNA generated yet' }
+   905→  return {
+   906→    architecturePhilosophy: dna.architecturePhilosophy,
+   907→    techStack: dna.techStack,
+   908→    codingStandards: dna.codingStandards.slice(0, 8),
+   909→    businessRules: dna.businessRules.slice(0, 6),
+   910→    designPatterns: dna.designPatterns.slice(0, 5),
+   911→    prismaModels: dna.fileStats.prismaModels,
+   912→    codeMapTop: dna.fileStats.codeMap.slice(0, 25).map((c) => ({ path: c.path, lines: c.lines, exports: c.exports })),
+   913→    astScopeGuardRules: {
+   914→      protectedPaths: ['prisma/schema.prisma', '.env', '.env.local', 'src/middleware.ts'],
+   915→    },
+   916→  }
+   917→}
+   918→
+   919→function boundArtifactData(data: Record<string, unknown>): Record<string, unknown> {
+   920→  const bounded: Record<string, unknown> = {}
+   921→  for (const [key, value] of Object.entries(data)) {
+   922→    const serialized = JSON.stringify(value) ?? 'null'
+   923→    bounded[key] = serialized.length > 4000 ? `${serialized.slice(0, 4000)}…(truncated)` : value
+   924→  }
+   925→  return bounded
+   926→}
+   927→
+   928→function findMentionedModel(prompt: string, models: string[]): string | null {
+   929→  const lower = prompt.toLowerCase()
+   930→  for (const model of models) {
+   931→    const lowered = model.toLowerCase()
+   932→    if (lower.includes(lowered)) return model
+   933→    if (lowered.endsWith('y') && lower.includes(`${lowered.slice(0, -1)}ies`)) return model
+   934→    if (lower.includes(`${lowered}s`)) return model
+   935→  }
+   936→  if (/\buser db\b|\busers? (table|model|record|account)\b/i.test(prompt)) {
+   937→    const user = models.find((m) => m.toLowerCase() === 'user')
+   938→    if (user) return user
+   939→  }
+   940→  return null
+   941→}
+   942→
+   943→function routeName(prompt: string): string | null {
+   944→  const webhook = prompt.match(/\b(\w[\w-]*)\s+webhook/i)
+   945→  if (webhook) return webhook[1] // "stripe webhook" → "stripe" (path already has webhooks/)
+   946→  const page = prompt.match(/\b(\w[\w-]*)\s+(?:page|screen|dashboard)\b/i)
+   947→  if (page) return page[1]
+   948→  const api = prompt.match(/\b(?:api|endpoint|route)\s+(?:for\s+)?(\w[\w-]*)/i)
+   949→  if (api) return api[1]
+   950→  return null
+   951→}
+   952→
+   953→function inferTargetRoute(prompt: string): string | null {
+   954→  const name = routeName(prompt)
+   955→  if (!name) return null
+   956→  const kebab = kebabCase(name)
+   957→  if (/webhook/i.test(prompt)) return `src/app/api/webhooks/${kebab}/route.ts`
+   958→  if (/\bapi|endpoint|route\b/i.test(prompt)) return `src/app/api/${kebab}/route.ts`
+   959→  if (/\bpage|screen|dashboard\b/i.test(prompt)) return `src/app/${kebab}/page.tsx`
+   960→  return null
+   961→}
+   962→
+   963→function matchCodeMap(codeMap: Array<{ path: string; lines: number }>, prompt: string): string[] {
+   964→  const words = prompt
+   965→    .toLowerCase()
+   966→    .split(/[^a-z0-9]+/)
+   967→    .filter((w) => w.length >= 4)
+   968→  if (words.length === 0) return []
+   969→  const scored = codeMap
+   970→    .map((entry) => {
+   971→      const pathLower = entry.path.toLowerCase()
+   972→      let score = 0
+   973→      for (const word of words) if (pathLower.includes(word)) score += 1
+   974→      return { path: entry.path, lines: entry.lines, score }
+   975→    })
+   976→    .filter((e) => e.score > 0)
+   977→    .sort((a, b) => b.score - a.score || b.lines - a.lines)
+   978→  return scored.slice(0, 3).map((e) => e.path)
+   979→}
+   980→
+   981→function mapPlatform(platform: string): Tier1RewrittenPrompt['targetPlatformOptimized'] {
+   982→  const allowed = ['codex', 'hermes', 'opencode', 'cursor', 'claude', 'generic'] as const
+   983→  return (allowed as readonly string[]).includes(platform) ? (platform as Tier1RewrittenPrompt['targetPlatformOptimized']) : 'generic'
+   984→}
+   985→
+   986→function sentenceCase(text: string): string {
+   987→  const clean = text.trim()
+   988→  if (!clean) return clean
+   989→  return clean.charAt(0).toUpperCase() + clean.slice(1)
+   990→}
+   991→
+   992→function shorten(text: string, max: number): string {
+   993→  const clean = text.replace(/\s+/g, ' ').trim()
+   994→  if (clean.length <= max) return clean
+   995→  const cut = clean.slice(0, max)
+   996→  const lastSpace = cut.lastIndexOf(' ')
+   997→  return `${cut.slice(0, lastSpace > max * 0.6 ? lastSpace : max)}…`
+   998→}
+   999→
+  1000→function kebabCase(input: string): string {
+  1001→  return input
+  1002→    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+  1003→    .replace(/[\s_]+/g, '-')
+  1004→    .replace(/[^a-zA-Z0-9-]/g, '')
+  1005→    .replace(/-+/g, '-')
+  1006→    .replace(/^-|-$/g, '')
+  1007→    .toLowerCase()
+  1008→}
+  1009→
+  1010→function hashString(input: string): string {
+  1011→  let hash = 0x811c9dc5
+  1012→  for (let i = 0; i < input.length; i++) {
+  1013→    hash ^= input.charCodeAt(i)
+  1014→    hash = Math.imul(hash, 0x01000193)
+  1015→  }
+  1016→  return (hash >>> 0).toString(16).padStart(8, '0')
+  1017→}
+  1018→
+  1019→export { toStagedSummary }
+  1020→

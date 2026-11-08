@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CortexOS — Visual Command Center Preview (standalone)</title>
+<!--
+  CortexOS Phase 4 — zero-dependency standalone preview of the Visual
+  Command Center contract (GET /api/cortex/state). This file runs directly
+  from the filesystem (file://) or from the daemon at
+  /cortexos_command_center_preview.html. The dataset below is a FROZEN
+  SNAPSHOT of the live CortexDashboardStateResponse shape; the interactive
+  Command Center at the daemon serves the real thing.
+-->
+<style>
+  :root {
+    --bg: #020617; --panel: #0f172a; --panel2: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --primary: #818cf8; --emerald: #34d399;
+    --rose: #fb7185; --amber: #fbbf24; --cyan: #22d3ee; --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; padding: 20px; }
+  .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  h1 { font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .pill { font-size: 10px; padding: 3px 9px; border-radius: 999px; border: 1px solid; }
+  .pill.live { color: var(--emerald); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
+  .pill.phase { color: var(--primary); border-color: rgba(129,140,248,.4); background: rgba(129,140,248,.08); }
+  button { cursor: pointer; font: inherit; }
+  .btn { background: var(--primary); color: #0b1020; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; font-size: 12px; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .kpi .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .kpi .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .grid { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: var(--panel2); color: var(--muted); border: 0; }
+  .chip.active { background: rgba(129,140,248,.15); color: var(--primary); box-shadow: inset 0 0 0 1px rgba(129,140,248,.35); }
+  .nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; max-height: 380px; overflow-y: auto; padding-right: 4px; }
+  .node { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: left; color: var(--text); display: flex; flex-direction: column; gap: 4px; }
+  .node:hover { border-color: #475569; }
+  .node.selected { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(129,140,248,.4); }
+  .node .kind { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; display: flex; justify-content: space-between; gap: 6px; }
+  .node .title { font-size: 12px; font-weight: 600; word-break: break-all; }
+  .node .sub { font-size: 10px; color: var(--muted); word-break: break-all; }
+  .badge { font-size: 8.5px; padding: 2px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
+  .badge.in { color: var(--emerald); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
+  .badge.locked { color: var(--rose); border-color: rgba(251,113,133,.4); background: rgba(251,113,133,.08); }
+  .badge.ctx { color: var(--muted); border-color: var(--border); }
+  .inspector { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .inspector .fqn { font-size: 11px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-top: 6px; word-break: break-all; }
+  .inspector .sig { color: var(--emerald); }
+  .inspector .row { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; }
+  .edges { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .edges li { list-style: none; font-size: 10px; background: var(--panel2); border-radius: 5px; padding: 5px 8px; margin-top: 4px; word-break: break-all; }
+  .chart { display: flex; align-items: flex-end; gap: 14px; height: 150px; padding: 10px 4px 0; }
+  .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar-stack { width: 100%; max-width: 54px; display: flex; flex-direction: column; border-radius: 6px 6px 0 0; overflow: hidden; }
+  .bar-avoided { background: rgba(52,211,153,.75); }
+  .bar-optimized { background: rgba(99,102,241,.85); }
+  .bar-label { font-size: 10px; color: var(--muted); }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .rec { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .rec .head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .sev { font-size: 10px; padding: 2px 7px; border-radius: 4px; border: 1px solid; }
+  .sev.CRITICAL { color: var(--rose); border-color: rgba(251,113,133,.4); background: rgba(251,113,133,.08); }
+  .sev.HIGH { color: #fdba74; border-color: rgba(253,186,116,.4); background: rgba(253,186,116,.08); }
+  .sev.MEDIUM { color: var(--amber); border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.08); }
+  .sev.OPTIMIZATION { color: var(--emerald); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08); }
+  .rec .title { font-weight: 600; margin-top: 6px; font-size: 13px; }
+  .rec .rationale { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .rec .cmd { font-size: 10.5px; color: var(--cyan); background: #0b1220; border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; margin-top: 8px; word-break: break-all; }
+  .timeline-item { border-left: 2px solid var(--border); padding: 0 0 14px 14px; position: relative; }
+  .timeline-item::before { content: ''; position: absolute; left: -6px; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--panel2); border: 2px solid var(--primary); }
+  .timeline-item .meta { font-size: 10px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .timeline-item .summary { font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+  .sym { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid; margin: 4px 4px 0 0; display: inline-block; }
+  .sym.modified { color: var(--amber); border-color: rgba(251,191,36,.4); }
+  .sym.added { color: var(--emerald); border-color: rgba(52,211,153,.4); }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; padding: 18px; z-index: 50; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid #475569; border-radius: 14px; max-width: 720px; width: 100%; padding: 20px; }
+  .modal h3 { font-size: 15px; margin-bottom: 6px; }
+  .modal p.desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  .modal pre { background: #020617; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 11px; color: var(--emerald); max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+  .note { font-size: 11px; color: var(--muted); margin-top: 14px; text-align: center; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>⚡ CortexOS Visual Command Center <span class="pill phase">PHASE 4</span> <span class="pill live">STANDALONE PREVIEW</span></h1>
+      <p class="mono" style="font-size:11px;color:var(--muted);margin-top:4px">
+        Project: CortexOS — Local-First AI Development OS · DNA 1.0.0 · state #a41f2c · audit 132 symbols / 27 files
+      </p>
+    </div>
+    <button class="btn" id="handoff-btn">⇄ Generate Cross-Platform Handoff Packet</button>
+  </header>
+
+  <section class="kpis">
+    <div class="kpi"><div class="label">Net tokens saved</div><div class="value" style="color:var(--emerald)">1.79M</div><div class="sub">97.0% context reduction via scoped packets</div></div>
+    <div class="kpi"><div class="label">Local pre-execution</div><div class="value" style="color:var(--primary)">64%</div><div class="sub">94 local / 54 cloud turns</div></div>
+    <div class="kpi"><div class="label">AST scope locks</div><div class="value" style="color:var(--amber)">3</div><div class="sub">2 locked · 5 protected paths · fail-closed</div></div>
+    <div class="kpi"><div class="label">Est. API cost saved</div><div class="value" style="color:var(--cyan)">$26.81</div><div class="sub">across 148 intercepted prompts</div></div>
+  </section>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Knowledge Graph Explorer &amp; AST Scope Sentinel</h2>
+        <div class="chips" id="scope-filter">
+          <button class="chip active" data-mode="ALL">ALL</button>
+          <button class="chip" data-mode="IN_SCOPE">IN-SCOPE</button>
+          <button class="chip" data-mode="LOCKED">LOCKED</button>
+          <span style="flex:1"></span>
+          <button class="chip" id="hop-all" data-hop="ALL">FULL</button>
+          <button class="chip" id="hop-1" data-hop="1">1-HOP</button>
+          <button class="chip" id="hop-2" data-hop="2">2-HOP</button>
+        </div>
+        <div class="nodes" id="nodes"></div>
+        <p style="font-size:10.5px;color:var(--muted);margin-top:8px" id="node-count"></p>
+      </div>
+
+      <div class="card">
+        <h2>Token Offload Telemetry (14-day window)</h2>
+        <div class="chart" id="chart"></div>
+        <div class="legend">
+          <span><span class="dot" style="background:rgba(52,211,153,.75)"></span>context avoided (tokens)</span>
+          <span><span class="dot" style="background:rgba(99,102,241,.85)"></span>injected sync packets (tokens)</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Session Continuity Timeline</h2>
+        <div id="timeline"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>AI CTO Mode — Drift &amp; DAG Advisor</h2>
+        <div id="recs"></div>
+      </div>
+      <div class="inspector" id="inspector"></div>
+    </div>
+  </div>
+
+  <p class="note">Frozen snapshot of the <span class="mono">GET /api/cortex/state</span> contract · the live Command Center at the daemon renders the same components over real data · scope toggles here update only this preview.</p>
+
+  <div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal">
+      <h3>Cross-Platform &lt;cortex_sync_packet&gt; Handoff Payload</h3>
+      <p class="desc">Paste this compact XML packet into Claude Code, Codex, Cursor or any web chat to transfer full project continuity without re-explaining your repo.</p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <select id="platform-select">
+          <option value="codex">Codex CLI</option><option value="hermes">Hermes</option>
+          <option value="cursor">Cursor</option><option value="claude">Claude Code</option>
+        </select>
+        <button class="btn" id="copy-packet">Copy &lt;cortex_sync_packet&gt;</button>
+        <button class="btn ghost" id="close-modal" style="margin-left:auto">ESC / CLOSE</button>
+      </div>
+      <pre id="packet-xml"></pre>
+    </div>
+  </div>
+
+<script>
+'use strict';
+// ---------------------------------------------------------------------------
+// Frozen snapshot of CortexDashboardStateResponse (live contract shape)
+// ---------------------------------------------------------------------------
+var STATE = {
+  project: { name: 'CortexOS — Local-First AI Development OS', slug: 'cortexos-core', dnaVersion: '1.0.0' },
+  activeTask: { taskId: 'TASK-042', title: 'Unattended Live Session Sync & Visual Command Center', status: 'IN_PROGRESS',
+    allowedSymbolFqns: [
+      'src/engine/local-ollama-pipeline.ts#rewritePromptTier1',
+      'src/mcp/cortex-mcp-server.ts#handlePullSyncPacket',
+      'src/watcher/live-session-daemon.ts#ingestJsonlDelta'
+    ],
+    forbiddenPaths: ['hooks/sentinel_pretooluse.py', '.cortex/schema.cypher', '.env', 'prisma/migrations/'] },
+  scopeLock: {
+    allowedSymbolFqns: [
+      'src/engine/local-ollama-pipeline.ts#rewritePromptTier1',
+      'src/mcp/cortex-mcp-server.ts#handlePullSyncPacket',
+      'src/watcher/live-session-daemon.ts#ingestJsonlDelta'
+    ],
+    lockedSymbolFqns: [
+      'hooks/sentinel_pretooluse.py#verify_ast_scope_lock',
+      'src/lib/auth/tenant-guard.ts'
+    ]
+  },
+  graph: {
+    nodes: [
+      { id: 'mod-engine', label: 'Module', title: 'Engine Module', sub: 'src/engine' },
+      { id: 'mod-mcp', label: 'Module', title: 'MCP Control Plane', sub: 'src/mcp' },
+      { id: 'mod-hooks', label: 'Module', title: 'AST Sentinel Hooks', sub: 'hooks/' },
+      { id: 'file-1', label: 'SourceFile', title: 'local-ollama-pipeline.ts', sub: 'src/engine/local-ollama-pipeline.ts', fqn: 'src/engine/local-ollama-pipeline.ts' },
+      { id: 'file-2', label: 'SourceFile', title: 'cortex-mcp-server.ts', sub: 'src/mcp/cortex-mcp-server.ts', fqn: 'src/mcp/cortex-mcp-server.ts' },
+      { id: 'file-3', label: 'SourceFile', title: 'live-session-daemon.ts', sub: 'src/watcher/live-session-daemon.ts', fqn: 'src/watcher/live-session-daemon.ts' },
+      { id: 'file-4', label: 'SourceFile', title: 'sentinel_pretooluse.py', sub: 'hooks/sentinel_pretooluse.py', fqn: 'hooks/sentinel_pretooluse.py' },
+      { id: 'sym-1', label: 'ASTSymbol', title: 'rewritePromptTier1', sub: 'function · src/engine/local-ollama-pipeline.ts', fqn: 'src/engine/local-ollama-pipeline.ts#rewritePromptTier1', sig: 'async rewritePromptTier1(rawPrompt: string): Promise<Tier1RewrittenPrompt>', span: 'L148–L221', complexity: 6 },
+      { id: 'sym-2', label: 'ASTSymbol', title: 'handlePullSyncPacket', sub: 'function · src/mcp/cortex-mcp-server.ts', fqn: 'src/mcp/cortex-mcp-server.ts#handlePullSyncPacket', sig: 'handlePullSyncPacket(taskId: string): SyncPacketPayload', span: 'L64–L112', complexity: 5 },
+      { id: 'sym-3', label: 'ASTSymbol', title: 'ingestJsonlDelta', sub: 'function · src/watcher/live-session-daemon.ts', fqn: 'src/watcher/live-session-daemon.ts#ingestJsonlDelta', sig: 'ingestJsonlDelta(filePath: string): ExtractedMemoryDelta[]', span: 'L92–L167', complexity: 8 },
+      { id: 'sym-4', label: 'ASTSymbol', title: 'verify_ast_scope_lock', sub: 'python-def · hooks/sentinel_pretooluse.py', fqn: 'hooks/sentinel_pretooluse.py#verify_ast_scope_lock', sig: 'def verify_ast_scope_lock(file_path, new_source, active_scope) -> tuple[bool, str]', span: 'L210–L268', complexity: 14 },
+      { id: 'adr-001', label: 'ArchitecturalDecision', title: 'ADR-001: Zero-Cloud-Dependency Memory Indexing', sub: 'Enforced via Ollama + property graph' },
+      { id: 'adr-003', label: 'ArchitecturalDecision', title: 'ADR-003: Fail-closed AST semantic scope guard', sub: 'PreToolUse sentinel exits 2 on any out-of-scope mutation' },
+      { id: 'task-042', label: 'Task', title: 'TASK-042 · Live Session Sync & Command Center', sub: 'IN_PROGRESS' },
+      { id: 'turn-094', label: 'SessionTurn', title: 'Turn · codex-cli', sub: '2026-11-08 09:41' }
+    ],
+    edges: [
+      { id: 'e1', s: 'mod-engine', t: 'file-1', r: 'CONTAINS_FILE' },
+      { id: 'e2', s: 'mod-mcp', t: 'file-2', r: 'CONTAINS_FILE' },
+      { id: 'e3', s: 'mod-hooks', t: 'file-4', r: 'CONTAINS_FILE' },
+      { id: 'e4', s: 'file-1', t: 'sym-1', r: 'DECLARES_SYMBOL' },
+      { id: 'e5', s: 'file-2', t: 'sym-2', r: 'DECLARES_SYMBOL' },
+      { id: 'e6', s: 'file-3', t: 'sym-3', r: 'DECLARES_SYMBOL' },
+      { id: 'e7', s: 'file-4', t: 'sym-4', r: 'DECLARES_SYMBOL' },
+      { id: 'e8', s: 'sym-2', t: 'sym-1', r: 'CALLS_SYMBOL' },
+      { id: 'e9', s: 'sym-3', t: 'sym-2', r: 'CALLS_SYMBOL' },
+      { id: 'e10', s: 'sym-1', t: 'adr-001', r: 'GOVERNED_BY' },
+      { id: 'e11', s: 'sym-4', t: 'adr-003', r: 'GOVERNED_BY' },
+      { id: 'e12', s: 'task-042', t: 'sym-1', r: 'MODIFIED_SYMBOL' },
+      { id: 'e13', s: 'task-042', t: 'sym-2', r: 'MODIFIED_SYMBOL' },
+      { id: 'e14', s: 'task-042', t: 'sym-3', r: 'MODIFIED_SYMBOL' }
+    ]
+  },
+  telemetry: { historyByDay: [
+    { date: '11-02', avoided: 296000, optimized: 9200 }, { date: '11-03', avoided: 402000, optimized: 11400 },
+    { date: '11-04', avoided: 490000, optimized: 15160 }, { date: '11-05', avoided: 576000, optimized: 19000 }
+  ]},
+  timeline: [
+    { platform: 'codex-cli', kind: 'pre-exec-agent', ts: '2 min ago', summary: 'Captured incremental JSONL transcript delta; verified AST symbol diff on ingestJsonlDelta.', tokens: 14200, symbols: [{ name: 'ingestJsonlDelta', change: 'modified' }] },
+    { platform: 'claude-code', kind: 'pre-exec-agent', ts: '19 min ago', summary: 'PreToolUse AST Sentinel blocked out-of-scope mutation to verify_ast_scope_lock (exit code 2).', tokens: 18500, symbols: [{ name: 'handlePullSyncPacket', change: 'modified' }], ratified: ['ADR-003'] },
+    { platform: 'cursor', kind: 'tier1-rewrite', ts: '47 min ago', summary: 'Tier-1 Prompt Engineer rewrote a raw 12-word prompt into a scoped specification with 1-hop graph context.', tokens: 11900, symbols: [{ name: 'rewritePromptTier1', change: 'added' }], ratified: ['ADR-001'] },
+    { platform: 'hermes', kind: 'handoff', ts: '3 h ago', summary: 'Cross-platform handoff codex → hermes — 412-token sync packet injected.', tokens: 0, symbols: [] }
+  ],
+  cto: [
+    { id: 'rec-1', sev: 'HIGH', cat: 'SCOPE_LOCK_HAZARD', title: 'Lock high-complexity symbol: dispatchOrchestrationWave (complexity 15)', rationale: "Symbol 'src/orchestrator/multi-agent-orchestrator.ts#dispatchOrchestrationWave' has cyclomatic complexity 15 (threshold: 12) and is not explicitly locked. Lock it so the PreToolUse sentinel blocks accidental mutations.", symbols: ['src/orchestrator/multi-agent-orchestrator.ts#dispatchOrchestrationWave'], cmd: 'cortexos scope --lock "src/orchestrator/multi-agent-orchestrator.ts#dispatchOrchestrationWave"', savings: 1400 },
+    { id: 'rec-2', sev: 'CRITICAL', cat: 'ARCHITECTURE_DRIFT', title: 'Layer boundary violation: ui → storage', rationale: "'src/components/billing/report-widget.tsx' imports '@/lib/db' directly. Route through /api/cortex/* or the engine service layer instead of importing storage directly.", symbols: ['src/components/billing/report-widget.tsx', 'src/lib/db.ts'], cmd: 'cortexos adr --enforce-boundary ui->storage' },
+    { id: 'rec-3', sev: 'OPTIMIZATION', cat: 'TOKEN_OPTIMIZATION', title: 'Increase local pre-execution offload (63.5% → 65%)', rationale: "54 of 148 intercepted turns escalated to the paid cloud tier. Routing contract validation, AST diffs and test scaffolding through 'qwen2.5:1.5b' first removes that context from every cloud prompt.", symbols: ['src/lib/cortex/preexec.ts#runPreExecution'], cmd: 'cortexos router --set-threshold 0.72 --model qwen2.5:1.5b', savings: 6800 }
+  ],
+  packetXml: '<cortex_sync_packet version="1.0.0" project="CortexOS — Local-First AI Development OS" state-hash="#a41f2c" timestamp="2026-11-08T09:41:00Z">\n  <active_task id="TASK-042" status="IN_PROGRESS">\n    <title>Unattended Live Session Sync &amp; Visual Command Center</title>\n    <allowed_symbols>\n      <symbol>src/engine/local-ollama-pipeline.ts#rewritePromptTier1</symbol>\n      <symbol>src/mcp/cortex-mcp-server.ts#handlePullSyncPacket</symbol>\n      <symbol>src/watcher/live-session-daemon.ts#ingestJsonlDelta</symbol>\n    </allowed_symbols>\n    <forbidden_paths>\n      <path>hooks/sentinel_pretooluse.py</path>\n      <path>.cortex/schema.cypher</path>\n      <path>.env</path>\n      <path>prisma/migrations/</path>\n    </forbidden_paths>\n  </active_task>\n  <dna_snapshot>\n    <stack>Next.js 16, Prisma/SQLite, Tailwind v4, Ollama</stack>\n    <constraint>ADR-001: all memory extraction and prompt routing MUST execute locally.</constraint>\n    <constraint>ADR-003: out-of-scope edits are blocked by the PreToolUse sentinel (exit 2).</constraint>\n  </dna_snapshot>\n  <scoped_graph_context active_module="engine">\n    <decision id="adr-001" title="Zero-Cloud-Dependency Memory Indexing">Enforced via Ollama + property graph</decision>\n    <symbol signature="async rewritePromptTier1(rawPrompt: string): Promise&lt;Tier1RewrittenPrompt&gt;">src/engine/local-ollama-pipeline.ts#rewritePromptTier1</symbol>\n  </scoped_graph_context>\n  <continuity_state>\n    <last_completed_action>dag.dispatched: 1 local subtask executed, 1 cloud payload emitted</last_completed_action>\n    <next_pending_tasks>\n      <task>Wire the watcher byte-offset cursor into the sync packet</task>\n    </next_pending_tasks>\n  </continuity_state>\n  <recent_continuity_delta platform="codex" synced_at="2026-11-08T09:41:00Z">\n    [CORTEX-OS SYNC | Project: CortexOS | State: #a41f2c | Platform: codex]\n  </recent_continuity_delta>\n</cortex_sync_packet>'
+};
+
+// ---------------------------------------------------------------------------
+// Graph explorer
+// ---------------------------------------------------------------------------
+var selectedId = null, filterMode = 'ALL', hopRadius = 'ALL';
+var scope = { allowed: STATE.scopeLock.allowedSymbolFqns.slice(), locked: STATE.scopeLock.lockedSymbolFqns.slice() };
+
+function scopeOf(node) {
+  if (!node.fqn) return null;
+  if (scope.allowed.indexOf(node.fqn) >= 0) return 'IN_SCOPE';
+  if (scope.locked.indexOf(node.fqn) >= 0) return 'LOCKED';
+  for (var i = 0; i < STATE.activeTask.forbiddenPaths.length; i++) {
+    if (node.fqn.indexOf(STATE.activeTask.forbiddenPaths[i]) === 0) return 'LOCKED';
+  }
+  return 'NEUTRAL';
+}
+
+function egoIds() {
+  if (!selectedId || hopRadius === 'ALL') return null;
+  var radius = parseInt(hopRadius, 10);
+  var seen = {}; seen[selectedId] = true; var frontier = [selectedId];
+  for (var d = 0; d < radius; d++) {
+    var next = [];
+    STATE.graph.edges.forEach(function (e) {
+      if (frontier.indexOf(e.s) >= 0 && !seen[e.t]) { seen[e.t] = true; next.push(e.t); }
+      if (frontier.indexOf(e.t) >= 0 && !seen[e.s]) { seen[e.s] = true; next.push(e.s); }
+    });
+    frontier = next;
+  }
+  return Object.keys(seen);
+}
+
+function nodeTitle(id) {
+  for (var i = 0; i < STATE.graph.nodes.length; i++) if (STATE.graph.nodes[i].id === id) return STATE.graph.nodes[i].title;
+  return id;
+}
+
+function renderNodes() {
+  var wrap = document.getElementById('nodes');
+  var ego = egoIds();
+  var visible = STATE.graph.nodes.filter(function (n) {
+    if (ego && ego.indexOf(n.id) < 0) return false;
+    var s = scopeOf(n);
+    return filterMode === 'ALL' || s === filterMode;
+  });
+  wrap.innerHTML = '';
+  visible.forEach(function (node) {
+    var s = scopeOf(node);
+    var btn = document.createElement('button');
+    btn.className = 'node' + (selectedId === node.id ? ' selected' : '');
+    var badge = s === 'IN_SCOPE' ? '<span class="badge in">IN-SCOPE</span>'
+      : s === 'LOCKED' ? '<span class="badge locked">LOCKED</span>'
+      : (node.fqn ? '<span class="badge ctx">CTX</span>' : '');
+    var complexity = typeof node.complexity === 'number'
+      ? '<span class="sub mono" style="color:' + (node.complexity > 12 ? 'var(--rose)' : node.complexity > 7 ? 'var(--amber)' : 'var(--emerald)') + '">complexity ' + node.complexity + ' · ' + node.span + '</span>' : '';
+    btn.innerHTML =
+      '<span class="kind mono"><span style="color:var(--primary)">' + node.label + '</span>' + badge + '</span>' +
+      '<span class="title">' + node.title + '</span>' +
+      (node.sub ? '<span class="sub mono">' + node.sub + '</span>' : '') + complexity;
+    btn.onclick = function () { selectedId = node.id; renderNodes(); renderInspector(); };
+    wrap.appendChild(btn);
+  });
+  document.getElementById('node-count').textContent =
+    visible.length + ' of ' + STATE.graph.nodes.length + ' nodes · ' + STATE.graph.edges.length + ' edges · click a node, then use the hop radius';
+}
+
+function renderInspector() {
+  var box = document.getElementById('inspector');
+  if (!selectedId) {
+    box.innerHTML = '<h2>Node Inspector</h2><p style="font-size:12px;color:var(--muted);margin-top:8px">Select a node to inspect its FQN, AST signature, complexity and live scope status.</p>';
+    return;
+  }
+  var node = STATE.graph.nodes.filter(function (n) { return n.id === selectedId; })[0];
+  if (!node) { box.innerHTML = ''; return; }
+  var s = scopeOf(node);
+  var connected = STATE.graph.edges.filter(function (e) { return e.s === node.id || e.t === node.id; });
+  var html = '<h2>' + node.label + ' Inspector</h2>';
+  html += '<p style="font-size:15px;font-weight:600;margin-top:6px;word-break:break-all">' + node.title + '</p>';
+  if (node.fqn) html += '<p class="mono" style="font-size:10px;color:var(--muted);margin-top:8px">FQN</p><div class="fqn mono">' + node.fqn + '</div>';
+  if (node.sig) html += '<p class="mono" style="font-size:10px;color:var(--muted);margin-top:8px">AST SIGNATURE</p><div class="fqn mono sig">' + node.sig + '</div>';
+  if (typeof node.complexity === 'number') {
+    html += '<div class="row"><span style="color:var(--muted)">Cyclomatic complexity</span><span class="mono" style="color:' +
+      (node.complexity > 12 ? 'var(--rose)' : node.complexity > 7 ? 'var(--amber)' : 'var(--emerald)') + ';font-weight:700">' + node.complexity + '</span></div>';
+  }
+  html += '<div class="edges"><p class="mono" style="font-size:10px;color:var(--muted);text-transform:uppercase">Connected edges (' + connected.length + ')</p><ul>';
+  connected.forEach(function (e) {
+    html += '<li><span style="color:var(--primary)">—[' + e.r + ']→</span> ' + nodeTitle(e.s === node.id ? e.t : e.s) + '</li>';
+  });
+  html += '</ul></div>';
+  if (node.fqn) {
+    var inScope = s === 'IN_SCOPE';
+    html += '<button class="btn" style="width:100%;margin-top:12px;background:' + (inScope ? 'var(--rose)' : 'var(--emerald)') + ';color:#0b1020">' +
+      (inScope ? '🔒 LOCK SYMBOL IN PRETOOLUSE SENTINEL' : '🔓 UNLOCK SYMBOL FOR ACTIVE TASK') + '</button>';
+  } else {
+    html += '<p style="font-size:11px;color:var(--muted);margin-top:12px">Governance node — scope locks apply to SourceFile / ASTSymbol nodes.</p>';
+  }
+  box.innerHTML = html;
+  var toggle = box.querySelector('button.btn');
+  if (toggle) {
+    toggle.onclick = function () {
+      var idx = scope.allowed.indexOf(node.fqn);
+      if (idx >= 0) { scope.allowed.splice(idx, 1); if (scope.locked.indexOf(node.fqn) < 0) scope.locked.push(node.fqn); }
+      else {
+        var li = scope.locked.indexOf(node.fqn); if (li >= 0) scope.locked.splice(li, 1);
+        scope.allowed.push(node.fqn);
+      }
+      STATE.activeTask.allowedSymbolFqns = scope.allowed;
+      renderNodes(); renderInspector();
+    };
+  }
+}
+
+document.querySelectorAll('#scope-filter .chip[data-mode]').forEach(function (chip) {
+  chip.onclick = function () {
+    filterMode = chip.dataset.mode;
+    document.querySelectorAll('#scope-filter .chip[data-mode]').forEach(function (c) { c.classList.remove('active'); });
+    chip.classList.add('active');
+    renderNodes();
+  };
+});
+[['hop-all','ALL'],['hop-1','1'],['hop-2','2']].forEach(function (pair) {
+  var el = document.getElementById(pair[0]);
+  el.onclick = function () {
+    hopRadius = pair[1];
+    ['hop-all','hop-1','hop-2'].forEach(function (id) { document.getElementById(id).classList.remove('active'); });
+    el.classList.add('active');
+    renderNodes();
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Token chart (pure CSS bars)
+// ---------------------------------------------------------------------------
+(function () {
+  var chart = document.getElementById('chart');
+  var max = 0;
+  STATE.telemetry.historyByDay.forEach(function (d) { max = Math.max(max, d.avoided + d.optimized); });
+  STATE.telemetry.historyByDay.forEach(function (d) {
+    var group = document.createElement('div');
+    group.className = 'bar-group';
+    var total = d.avoided + d.optimized;
+    var stack = document.createElement('div');
+    stack.className = 'bar-stack';
+    stack.style.height = Math.max(4, (total / max) * 100) + '%';
+    stack.title = d.avoided.toLocaleString() + ' avoided · ' + d.optimized.toLocaleString() + ' injected';
+    var avoided = document.createElement('div');
+    avoided.className = 'bar-avoided';
+    avoided.style.height = (d.avoided / total) * 100 + '%';
+    var optimized = document.createElement('div');
+    optimized.className = 'bar-optimized';
+    optimized.style.height = (d.optimized / total) * 100 + '%';
+    stack.appendChild(avoided); stack.appendChild(optimized);
+    var label = document.createElement('div');
+    label.className = 'bar-label mono'; label.textContent = d.date;
+    group.appendChild(stack); group.appendChild(label);
+    chart.appendChild(group);
+  });
+})();
+
+// ---------------------------------------------------------------------------
+// AI CTO advisories
+// ---------------------------------------------------------------------------
+(function () {
+  var box = document.getElementById('recs');
+  STATE.cto.forEach(function (rec) {
+    var div = document.createElement('div');
+    div.className = 'rec';
+    div.innerHTML =
+      '<div class="head"><span class="sev ' + rec.sev + ' mono">[' + rec.sev + ']</span>' +
+      (rec.savings ? '<span class="mono" style="font-size:10px;color:var(--emerald)">est. ~' + rec.savings.toLocaleString() + ' tokens saved</span>' : '') + '</div>' +
+      '<p class="title">' + rec.title + '</p>' +
+      '<p class="rationale">' + rec.rationale + '</p>' +
+      '<div class="cmd mono">$ ' + rec.cmd + '</div>';
+    box.appendChild(div);
+  });
+})();
+
+// ---------------------------------------------------------------------------
+// Timeline
+// ---------------------------------------------------------------------------
+(function () {
+  var box = document.getElementById('timeline');
+  STATE.timeline.forEach(function (t) {
+    var item = document.createElement('div');
+    item.className = 'timeline-item';
+    var symbols = t.symbols.map(function (s) {
+      return '<span class="sym ' + s.change + ' mono">' + s.change.toUpperCase() + ': ' + s.name + '</span>';
+    }).join('');
+    var ratified = t.ratified ? '<p class="mono" style="font-size:10px;color:var(--violet);margin-top:4px">✓ ratified: ' + t.ratified.join(' · ') + '</p>' : '';
+    var tokens = t.tokens ? '<p class="mono" style="font-size:10.5px;color:var(--emerald);margin-top:3px">↓ ' + t.tokens.toLocaleString() + ' tokens saved</p>' : '';
+    item.innerHTML =
+      '<div class="meta mono"><span style="color:var(--primary)">[' + t.platform + '] ' + t.kind + '</span><span>' + t.ts + '</span></div>' +
+      '<p class="summary">' + t.summary + '</p>' + tokens +
+      (symbols ? '<div style="margin-top:2px">' + symbols + '</div>' : '') + ratified;
+    box.appendChild(item);
+  });
+})();
+
+// ---------------------------------------------------------------------------
+// Handoff modal
+// ---------------------------------------------------------------------------
+var backdrop = document.getElementById('modal-backdrop');
+document.getElementById('handoff-btn').onclick = function () { backdrop.classList.add('open'); };
+document.getElementById('close-modal').onclick = function () { backdrop.classList.remove('open'); };
+backdrop.addEventListener('click', function (event) { if (event.target === backdrop) backdrop.classList.remove('open'); });
+document.addEventListener('keydown', function (event) { if (event.key === 'Escape') backdrop.classList.remove('open'); });
+document.getElementById('copy-packet').onclick = function () {
+  var btn = this;
+  var done = function () { btn.textContent = '✓ Copied!'; setTimeout(function () { btn.textContent = 'Copy <cortex_sync_packet>'; }, 1800); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(STATE.packetXml).then(done, done);
+  } else {
+    var area = document.createElement('textarea');
+    area.value = STATE.packetXml; document.body.appendChild(area); area.select();
+    document.execCommand('copy'); document.body.removeChild(area); done();
+  }
+};
+document.getElementById('platform-select').onchange = function () {
+  var xml = STATE.packetXml.replace(/platform="codex"/, 'platform="' + this.value + '"');
+  STATE.packetXml = xml;
+  document.getElementById('packet-xml').textContent = xml;
+};
+document.getElementById('packet-xml').textContent = STATE.packetXml;
+
+// Initial render
+renderNodes();
+renderInspector();
+</script>
+</body>
+</html>

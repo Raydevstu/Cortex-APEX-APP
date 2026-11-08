@@ -406,6 +406,9 @@ export interface DaemonSettings {
   ollamaRouterModel: string
   /** Phase 3 — Engine 3 memory extractor model (agentRoutingPolicy.memoryExtractor). */
   ollamaExtractorModel: string
+  /** Phase 4 — cloud escalation model label used by the DAG orchestrator
+   *  when routing cross-module implementation subtasks (agentRoutingPolicy.cloudEscalationModel). */
+  cloudEscalationModel: string
   /** Phase 3 — optional SearXNG endpoint for the local_docs_search web layer. */
   searxngUrl: string
 }
@@ -438,6 +441,7 @@ export interface DaemonHealth {
     episodes: number
     preExecRuns: number
     stagedArtifacts: number
+    dagPlans: number
   }
 }
 
@@ -723,4 +727,220 @@ export interface FileAstDiff {
   path: string
   addedSymbols: string[]
   modifiedSymbols: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Visual Command Center & AI CTO Mode (blueprint PHASE_4 §3,
+// extended with the live property-graph kinds the daemon actually stores)
+// ---------------------------------------------------------------------------
+
+/** Blueprint node labels + the daemon's real property-graph kinds (superset). */
+export type GraphNodeLabel =
+  | 'Module'
+  | 'SourceFile'
+  | 'ASTSymbol'
+  | 'ArchitecturalDecision'
+  | 'Task'
+  | 'Bug'
+  | 'SessionTurn'
+  // Live-graph extensions (documented in docs/CORTEXOS-PHASE4.md §2):
+  | 'Tech'
+  | 'Feature'
+  | 'External'
+  | 'Root'
+
+export interface GraphNodeDTO {
+  id: string
+  label: GraphNodeLabel
+  title: string
+  subtitle?: string
+  filePath?: string
+  fqn?: string
+  signature?: string
+  lineSpan?: string
+  scopeStatus: 'IN_SCOPE' | 'LOCKED' | 'NEUTRAL'
+  complexity?: number
+  metadata?: Record<string, unknown>
+}
+
+export interface GraphEdgeDTO {
+  id: string
+  source: string
+  target: string
+  relationship:
+    | 'CONTAINS_FILE'
+    | 'DECLARES_SYMBOL'
+    | 'IMPORTS_SYMBOL'
+    | 'CALLS_SYMBOL'
+    | 'GOVERNED_BY'
+    | 'MODIFIED_SYMBOL'
+    | 'DEPENDS_ON'
+    // Live-graph relations surfaced verbatim (superset):
+    | 'CONTAINS'
+    | 'USES'
+    | 'IMPLEMENTS'
+    | 'BLOCKED_BY'
+    | 'HAS_BUG'
+    | 'PREFERS'
+    | 'SYNCED_WITH'
+    | 'SUPERSEDES'
+}
+
+export interface TokenTelemetrySummary {
+  totalPromptsIntercepted: number
+  rawContextTokensEstimated: number
+  injectedSyncPacketTokens: number
+  netTokensSaved: number
+  compressionRatioPct: number
+  estimatedCostSavingsUsd: number
+  /** USD per million net tokens saved — documented pricing constant. */
+  pricingUsdPerMTokens: number
+  localOllamaOffloadCount: number
+  cloudEscalationCount: number
+  localOffloadPct: number
+  historyByDay: Array<{
+    date: string
+    rawTokens: number
+    optimizedTokens: number
+    localExecutions: number
+  }>
+}
+
+export interface ContinuityTimelineEvent {
+  turnId: string
+  timestamp: string
+  platform: string
+  kind: string
+  summary: string
+  tokensSaved: number
+  symbolsTouched: Array<{
+    fqn: string
+    changeType: 'added' | 'modified' | 'deleted'
+  }>
+  decisionsRatified: string[]
+}
+
+export type CTOSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'OPTIMIZATION'
+
+export type CtoActionType = 'LOCK_SYMBOLS' | 'DECOMPOSE_DAG' | 'REFACTOR_LOCAL' | 'RATIFY_ADR'
+
+export interface AICtoRecommendation {
+  id: string
+  category:
+    | 'ARCHITECTURE_DRIFT'
+    | 'SCOPE_LOCK_HAZARD'
+    | 'TOKEN_OPTIMIZATION'
+    | 'COMPLEXITY_HOTSPOT'
+    | 'UNLINKED_REQUIREMENT'
+  severity: CTOSeverity
+  title: string
+  rationale: string
+  impactedSymbols: string[]
+  suggestedAction: {
+    actionType: CtoActionType
+    commandPreview: string
+    estimatedTokenSavings?: number
+  }
+}
+
+export interface ScopeLockState {
+  projectId: string
+  allowedSymbolFqns: string[]
+  lockedSymbolFqns: string[]
+  forbiddenPaths: string[]
+  updatedAt: string
+  source: string
+}
+
+export interface ActiveTaskState {
+  taskId: string
+  title: string
+  status: string
+  allowedSymbolFqns: string[]
+  forbiddenPaths: string[]
+}
+
+export interface CortexDashboardStateResponse {
+  projectName: string
+  projectSlug: string
+  projectDnaVersion: string
+  activeTask: ActiveTaskState
+  scopeLock: ScopeLockState
+  graph: {
+    nodes: GraphNodeDTO[]
+    edges: GraphEdgeDTO[]
+  }
+  telemetry: TokenTelemetrySummary
+  timeline: ContinuityTimelineEvent[]
+  ctoRecommendations: AICtoRecommendation[]
+  syncPacketXml: string
+  audit: {
+    scannedAt: string
+    workspaceRoot: string | null
+    symbolsScanned: number
+    filesScanned: number
+    cache: 'hit' | 'miss'
+  }
+  serverTime: string
+}
+
+// ---- Phase 4 — Multi-Agent DAG Orchestrator contracts ----------------------
+
+export interface DAGSubTask {
+  id: string
+  title: string
+  /** `local-ollama:<model>` or `cloud:<escalation-model>`. */
+  assignedAgent: string
+  agentKind: 'local' | 'cloud'
+  dependencies: string[]
+  allowedSymbolFqns: string[]
+  prompt: string
+}
+
+export type DagSubtaskStatus = 'pending' | 'dispatched' | 'completed' | 'failed' | 'skipped'
+
+export interface DAGSubTaskRecord extends DAGSubTask {
+  status: DagSubtaskStatus
+  wave: number
+  resultSummary?: string
+  artifacts?: Array<{ toolName: string; ok: boolean; summary: string }>
+  /** Tier-1 execution payload for cloud-assigned subtasks (copy into the target agent). */
+  payload?: string
+  tokensSavedEstimate?: number
+  durationMs?: number
+}
+
+export interface DagPlanDTO {
+  id: string
+  projectId: string
+  projectName: string
+  goal: string
+  status: 'draft' | 'dispatched' | 'completed' | 'archived'
+  subtasks: DAGSubTaskRecord[]
+  waves: string[][]
+  auditMeta: {
+    triggeredBy?: string
+    recommendationId?: string
+    estimatedTokenSavings?: number
+  }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CtoAuditResponse {
+  audit: {
+    projectId: string
+    projectName: string
+    scannedAt: string
+    recommendations: AICtoRecommendation[]
+    stats: {
+      symbolsScanned: number
+      filesScanned: number
+      layerViolations: number
+      complexityHotspots: number
+      workspaceRoot: string | null
+      cache: 'hit' | 'miss'
+    }
+  }
+  plans: DagPlanDTO[]
 }

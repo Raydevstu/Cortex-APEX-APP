@@ -38,6 +38,7 @@ model Project {
   commits        GitCommit[]
   preExecRuns    PreExecRun[]
   stagedArtifacts StagedArtifact[]
+  dagPlans       DagPlan[]
 }
 
 // PROJECT DNA (blueprint "AI Project DNA" + Pillar knowledge model)
@@ -251,6 +252,27 @@ model StagedArtifact {
 
   @@index([projectId, status])
   @@index([runId])
+}
+
+// Phase 4 — Multi-Agent Execution DAG plans produced by the AI CTO engine.
+// A plan is a topologically ordered set of subtasks dispatched across local
+// Ollama agents (boilerplate / contracts / test scaffolding) and the cloud
+// main AI (core cross-module implementation), each bound to a strict
+// allowedSymbolFqns scope lock (blueprint Phase 4 §1.4 + §4).
+model DagPlan {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  goal      String
+  status    String   @default("draft") // draft | dispatched | completed | archived
+  subtasks  String   // JSON: DAGSubTaskRecord[] (id, assignedAgent, deps, scope, status, result)
+  waves     String   // JSON: string[][] — topological execution waves
+  auditMeta String   @default("{}") // JSON: { triggeredBy, estimatedTokenSavings, recommendationId }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, createdAt])
 }
 
 // Development Timeline (Pillar 11)

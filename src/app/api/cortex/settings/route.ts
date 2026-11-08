@@ -11,6 +11,8 @@ const putSchema = z.object({
   // Phase 3 — local-agent model roles + optional SearXNG docs layer:
   ollamaRouterModel: z.string().trim().min(1).max(120).optional(),
   ollamaExtractorModel: z.string().trim().min(1).max(120).optional(),
+  // Phase 4 — DAG orchestrator cloud tier label:
+  cloudEscalationModel: z.string().trim().min(1).max(120).optional(),
   searxngUrl: z
     .union([z.string().trim().url('must be a valid URL, e.g. http://127.0.0.1:8888'), z.literal('')])
     .optional(),

@@ -9,12 +9,13 @@ import { useState, useCallback, useMemo } from 'react'
 import { useTheme } from 'next-themes'
 import {
   BrainCircuit, LayoutDashboard, Sparkles, FolderKanban, Settings, BookOpen,
-  Moon, Sun, Menu, X, Github, Zap, ShieldCheck,
+  Moon, Sun, Menu, X, Github, Zap, ShieldCheck, Gauge,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cortexApi } from '@/lib/cortex-client'
 import { StatusPill } from './shared'
+import { CommandCenterView } from './command-center/command-center-view'
 import { DashboardView } from './dashboard-view'
 import { StudioView } from './studio-view'
 import { ProjectsView } from './projects-view'
@@ -24,8 +25,9 @@ import { DocsView } from './docs-view'
 import { cn } from '@/lib/utils'
 
 export type View =
+  | { name: 'command-center' }
   | { name: 'dashboard' }
-  | { name: 'studio'; projectId?: string }
+  | { name: 'studio'; projectId?: string; prompt?: string }
   | { name: 'projects' }
   | { name: 'project'; projectId: string; tab?: 'dna' | 'memories' | 'graph' | 'timeline' | 'sync' | 'watch' | 'history' }
   | { name: 'settings' }
@@ -44,9 +46,7 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
         },
       }),
   )
-  const [view, setView] = useState<View>(
-    initialProjectId ? { name: 'project', projectId: initialProjectId } : { name: 'dashboard' },
-  )
+  const [view, setView] = useState<View>({ name: 'command-center' })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const navigate = useCallback((next: View) => {
@@ -86,8 +86,9 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
           <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
             <Header view={view} onOpenMobileNav={() => setMobileNavOpen(true)} />
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-6 sm:px-6">
+              {view.name === 'command-center' ? <CommandCenterView initialProjectId={initialProjectId} navigate={navigate} /> : null}
               {view.name === 'dashboard' ? <DashboardView navigate={navigate} /> : null}
-              {view.name === 'studio' ? <StudioView initialProjectId={view.projectId} navigate={navigate} /> : null}
+              {view.name === 'studio' ? <StudioView initialProjectId={view.projectId} initialPrompt={view.prompt} navigate={navigate} /> : null}
               {view.name === 'projects' ? <ProjectsView navigate={navigate} /> : null}
               {view.name === 'project' ? (
                 <ProjectDetail projectId={view.projectId} tab={view.tab} navigate={navigate} />
@@ -97,7 +98,7 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
             </main>
             <footer className="mt-auto border-t border-border/60 px-6 py-4">
               <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">CortexOS v0.2.0 — Phase 2 · Cross-Platform Sync Engine</span>
+                <span className="font-mono">CortexOS v0.4.0 — Phase 4 · Visual Command Center &amp; AI CTO Mode</span>
                 <span className="flex items-center gap-1.5">
                   <ShieldCheck className="size-3.5" /> Local-first: all memory, graph and DNA data stays on this daemon
                 </span>
@@ -113,7 +114,8 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
 function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) => void }) {
   const items = useMemo(
     () => [
-      { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: view.name === 'dashboard' },
+      { key: 'command-center', label: 'Command Center', icon: Gauge, active: view.name === 'command-center' },
+      { key: 'dashboard', label: 'Overview', icon: LayoutDashboard, active: view.name === 'dashboard' },
       { key: 'studio', label: 'Prompt Studio', icon: Sparkles, active: view.name === 'studio' },
       { key: 'projects', label: 'Projects', icon: FolderKanban, active: view.name === 'projects' || view.name === 'project' },
       { key: 'settings', label: 'Daemon Settings', icon: Settings, active: view.name === 'settings' },
@@ -140,7 +142,8 @@ function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) =>
             key={item.key}
             onClick={() =>
               navigate(
-                item.key === 'dashboard' ? { name: 'dashboard' }
+                item.key === 'command-center' ? { name: 'command-center' }
+                : item.key === 'dashboard' ? { name: 'dashboard' }
                 : item.key === 'studio' ? { name: 'studio' }
                 : item.key === 'projects' ? { name: 'projects' }
                 : item.key === 'settings' ? { name: 'settings' }
@@ -173,10 +176,10 @@ function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) =>
               <span className="size-1.5 rounded-full bg-emerald-500" /> Phase 2 · Cross-Platform Sync — live
             </li>
             <li className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-zinc-600" /> Phase 3 · Pre-Execution Agents
+              <span className="size-1.5 rounded-full bg-emerald-500" /> Phase 3 · Pre-Execution Agents — live
             </li>
             <li className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-zinc-600" /> Phase 4 · AI CTO Mode
+              <span className="size-1.5 rounded-full bg-emerald-500" /> Phase 4 · Command Center &amp; AI CTO — live
             </li>
           </ul>
         </div>
@@ -194,7 +197,8 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
   const { theme, setTheme } = useTheme()
 
   const title =
-    view.name === 'dashboard' ? 'Command Center'
+    view.name === 'command-center' ? 'Visual Command Center'
+    : view.name === 'dashboard' ? 'Overview'
     : view.name === 'studio' ? 'Prompt Studio'
     : view.name === 'projects' ? 'Projects'
     : view.name === 'project' ? 'Project'
@@ -215,7 +219,7 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
         </Button>
         <h1 className="truncate text-sm font-semibold tracking-tight sm:text-base">{title}</h1>
         <Badge variant="outline" className="hidden border-primary/30 bg-primary/10 font-mono text-[10px] text-primary sm:inline-flex">
-          cortexd · v0.2.0
+          cortexd · v0.4.0
         </Badge>
 
         <div className="ml-auto flex items-center gap-2">
