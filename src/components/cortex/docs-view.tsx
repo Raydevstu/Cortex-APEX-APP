@@ -1,16 +1,20 @@
 'use client'
 
 /**
- * Integration Docs — the auditable contract of the Phase 1 daemon:
+ * Integration Docs — the auditable contract of the Phase 1 + Phase 2 daemon:
  * architecture mapping to the blueprint, full API reference, the Master
- * System Prompt and the phase roadmap.
+ * System Prompt, cross-platform integration guides (MCP / git hook /
+ * extension / watcher) and the phase roadmap.
  */
-import { Brain, GitBranch, Sparkles, Database, Server, ArrowRight, ScrollText } from 'lucide-react'
+import {
+  Brain, GitBranch, Sparkles, Database, Server, ArrowRight, ScrollText,
+  Radar, Plug, History as HistoryIcon, Chrome, Terminal, ArrowRightLeft,
+} from 'lucide-react'
 import { SectionCard, CopyButton } from './shared'
 
 const API_REFERENCE: Array<{ method: string; path: string; purpose: string }> = [
   { method: 'GET', path: '/api/cortex/health', purpose: 'Daemon heartbeat — database, Ollama status, entity counts' },
-  { method: 'GET', path: '/api/cortex/metrics', purpose: 'Dashboard aggregates + 14-day token savings series' },
+  { method: 'GET', path: '/api/cortex/metrics', purpose: 'Dashboard aggregates + sync stats + 14-day token savings series' },
   { method: 'GET', path: '/api/cortex/projects', purpose: 'List project brains with live counts' },
   { method: 'POST', path: '/api/cortex/projects', purpose: 'Create a project (root graph node seeded)' },
   { method: 'GET', path: '/api/cortex/projects/{id}', purpose: 'Project detail incl. full DNA document' },
@@ -21,18 +25,27 @@ const API_REFERENCE: Array<{ method: string; path: string; purpose: string }> = 
   { method: 'PATCH', path: '/api/cortex/projects/{id}/dna', purpose: 'Curate DNA sections (rules, patterns, standards)' },
   { method: 'GET', path: '/api/cortex/projects/{id}/timeline', purpose: 'Development timeline events' },
   { method: 'GET', path: '/api/cortex/memories?projectId=&type=&status=&q=', purpose: 'Filtered memory list' },
-  { method: 'POST', path: '/api/cortex/memories', purpose: 'Write a typed memory (manual / API / future MCP)' },
+  { method: 'POST', path: '/api/cortex/memories', purpose: 'Write a typed memory (manual / API / MCP cortex_log_decision)' },
   { method: 'PATCH', path: '/api/cortex/memories/{id}', purpose: 'Resolve/reopen, re-weight a memory' },
   { method: 'DELETE', path: '/api/cortex/memories/{id}', purpose: 'Delete a memory' },
   { method: 'GET', path: '/api/cortex/interactions?projectId=', purpose: 'Episodic interaction log' },
-  { method: 'POST', path: '/api/cortex/interactions', purpose: 'Capture a raw chat transcript → memory extraction + graph linking' },
+  { method: 'POST', path: '/api/cortex/interactions', purpose: 'Capture a transcript → memory extraction + graph linking + episodic indexing' },
   { method: 'GET', path: '/api/cortex/graph?projectId=[&nodeId=|&context=]', purpose: 'Full graph, node neighbourhood, or prompt-matched subgraph' },
   { method: 'POST', path: '/api/cortex/graph', purpose: 'Add a node or a triple {op:"add_node"|"add_edge"}' },
   { method: 'DELETE', path: '/api/cortex/graph?projectId=&nodeId=', purpose: 'Remove a node (edges cascade)' },
   { method: 'POST', path: '/api/cortex/rewrite', purpose: 'THE FLAGSHIP — Tier-1 prompt rewrite {projectId, prompt, engine}' },
   { method: 'GET', path: '/api/cortex/rewrite?projectId=', purpose: 'Prompt session history' },
-  { method: 'GET', path: '/api/cortex/sync/{slug}', purpose: 'Compact State Packet (cross-platform sync contract)' },
-  { method: 'GET/PUT', path: '/api/cortex/settings', purpose: 'Daemon settings (Ollama endpoint, default engine)' },
+  { method: 'GET', path: '/api/cortex/sync/{slug}[?target=&module=]', purpose: 'CrossPlatformSyncPacket preview (no handoff recorded)' },
+  { method: 'POST', path: '/api/cortex/sync/{slug}', purpose: 'PHASE 2 — Execute handoff {targetPlatform} → packet + SyncHandoff + timeline' },
+  { method: 'GET', path: '/api/cortex/sync/{slug}/handoffs', purpose: 'Handoff audit trail (platform pair, state hash, tokens)' },
+  { method: 'POST', path: '/api/cortex/search', purpose: 'PHASE 2 — Semantic episodic search {slug|projectId, query, k}' },
+  { method: 'GET', path: '/api/cortex/watch[?projectId=]', purpose: 'PHASE 2 — File watcher live status' },
+  { method: 'POST', path: '/api/cortex/watch', purpose: 'PHASE 2 — Start/stop a watcher {projectId, action, persist}' },
+  { method: 'POST', path: '/api/cortex/hooks/git', purpose: 'PHASE 2 — Git post-commit webhook {slug, commits[]}' },
+  { method: 'POST', path: '/api/cortex/git/ingest', purpose: 'PHASE 2 — Incremental git log backfill {projectId|slug}' },
+  { method: 'GET', path: '/api/cortex/git?projectId=', purpose: 'PHASE 2 — Ingested commit log' },
+  { method: 'GET', path: '/api/cortex/settings', purpose: 'Daemon settings (Ollama, embedding model, default engine)' },
+  { method: 'PUT', path: '/api/cortex/settings', purpose: 'Update daemon settings' },
   { method: 'POST', path: '/api/cortex/settings/test', purpose: 'Probe the Ollama endpoint' },
   { method: 'POST', path: '/api/cortex/seed', purpose: 'Idempotent SaaS-CRM demo seed' },
 ]
@@ -57,11 +70,35 @@ RULES (abridged)
 7. FIDELITY TO DATA — use ONLY the provided DNA, memories and graph pointers.
 8. OUTPUT — only the final prompt inside one markdown code block.`
 
+const MCP_TOOLS: Array<{ tool: string; purpose: string }> = [
+  { tool: 'cortex_sync', purpose: 'CrossPlatformSyncPacket on session start / platform switch (records the handoff)' },
+  { tool: 'cortex_get_dna', purpose: 'Full PROJECT DNA — read before generating any code' },
+  { tool: 'cortex_log_decision', purpose: 'Persist decisions/bugs/todos so nothing is ever lost' },
+  { tool: 'cortex_rewrite', purpose: 'Tier-1 prompt rewrite (fast | deep | cloud)' },
+  { tool: 'cortex_search_history', purpose: 'Semantic episodic search over past interactions' },
+  { tool: 'cortex_capture_interaction', purpose: 'Memory extraction from a raw chat transcript' },
+]
+
+const CLAUDE_CONFIG = `{
+  "mcpServers": {
+    "cortexos": {
+      "command": "node",
+      "args": ["/absolute/path/to/CortexOS/mcp-server/index.mjs"],
+      "env": { "CORTEX_DAEMON_URL": "http://localhost:3000" }
+    }
+  }
+}`
+
+const CODEX_CONFIG = `[mcp_servers.cortexos]
+command = "node"
+args = ["/absolute/path/to/CortexOS/mcp-server/index.mjs"]
+env = { CORTEX_DAEMON_URL = "http://localhost:3000" }`
+
 export function DocsView() {
   return (
     <div className="space-y-6">
-      {/* Architecture */}
-      <SectionCard title="Phase 1 architecture — how the blueprint maps to this build">
+      {/* Phase 2 architecture */}
+      <SectionCard title="Phase 2 architecture — the Cross-Platform Sync Engine">
         <div className="grid gap-3 md:grid-cols-3">
           <ArchCard
             icon={<Brain className="size-4" />}
@@ -69,7 +106,7 @@ export function DocsView() {
             lines={[
               'Deterministic extraction of decisions / requirements / TODOs / bugs / preferences',
               'Dedupe against the project memory store',
-              'Raw transcripts persisted as episodic interactions',
+              'Episodic vector store: every turn embedded for semantic recall',
             ]}
           />
           <ArchCard
@@ -77,7 +114,7 @@ export function DocsView() {
             title="Knowledge Graph (Pillar 2)"
             lines={[
               'SQLite-backed property graph: (source) —[RELATION]→ (target)',
-              'DNA scans and memory captures write triples automatically',
+              'File watcher + git hook write file/module triples automatically',
               'Context-matched subgraphs → symbolic pointers (zero-token context)',
             ]}
           />
@@ -91,32 +128,159 @@ export function DocsView() {
             ]}
           />
           <ArchCard
-            icon={<Database className="size-4" />}
-            title="PROJECT DNA"
+            icon={<ArrowRightLeft className="size-4" />}
+            title="Cross-Platform Sync (Pillar 3) — NEW"
             lines={[
-              'Workspace scan → tech stack with evidence, standards, patterns',
-              'Deterministic code map: imports / exports / functions per file',
-              'Requirement memories fold in as business rules (hybrid DNA)',
+              'Full CrossPlatformSyncPacket: header, DNA snapshot, scoped graph context, continuity',
+              'Handoff audit trail (platform pair, state hash, token count)',
+              'Delta, not dump: state hash lets platforms skip no-op re-ingestion',
+            ]}
+          />
+          <ArchCard
+            icon={<Radar className="size-4" />}
+            title="File Watcher + Git Intelligence — NEW"
+            lines={[
+              'Chokidar watcher: saves become file nodes, module edges, timeline events',
+              'Post-commit hook + git log backfill: commits land in the brain',
+              'Deterministic bug auto-resolution on fix commits',
+            ]}
+          />
+          <ArchCard
+            icon={<HistoryIcon className="size-4" />}
+            title="Episodic Vector Store — NEW"
+            lines={[
+              'Turn summaries (~60 tokens) embedded per blueprint SessionTurnNode',
+              'Ollama embeddings with deterministic local hashed fallback (offline-safe)',
+              'Cosine semantic search blended with keyword memory matches',
+            ]}
+          />
+          <ArchCard
+            icon={<Plug className="size-4" />}
+            title="MCP Server (hook #1) — NEW"
+            lines={[
+              'Real stdio MCP server: 6 tools, blueprint-exact names',
+              'Codex, OpenCode, Cursor, Windsurf, Claude, Hermes configs below',
+              'Session start pulls state; decisions flow back — full loop',
+            ]}
+          />
+          <ArchCard
+            icon={<Chrome className="size-4" />}
+            title="Browser Extension (hook #3) — NEW"
+            lines={[
+              'MV3 extension: Tier-1 rewrite + packet injection on any web chat',
+              'Global hotkeys Ctrl/Cmd+Shift+Space and Ctrl/Cmd+Shift+V',
+              'Works on ChatGPT, Claude, Gemini, Bolt, v0 — everywhere',
             ]}
           />
           <ArchCard
             icon={<Server className="size-4" />}
             title="cortexd daemon API"
             lines={[
-              '14 REST endpoints (see reference below) on the local server',
-              'Compact State Packet endpoint is the Phase 2 sync contract',
-              'MCP server (cortex_sync, cortex_get_dna, cortex_log_decision) lands in Phase 2',
+              '26 REST endpoints (see reference below) on the local server',
+              'Zod-validated with uniform error envelopes',
+              'Watchers auto-start on daemon boot (instrumentation hook)',
             ]}
           />
-          <ArchCard
-            icon={<ScrollText className="size-4" />}
-            title="Token Savings (Pillar 8)"
-            lines={[
-              'Naive-context vs compact-context accounting per rewrite',
-              'Smart routing recommendation: fast-path / local-agent / main-model',
-              '14-day savings series on the dashboard',
-            ]}
-          />
+        </div>
+      </SectionCard>
+
+      {/* MCP integration */}
+      <SectionCard
+        title="Connect your platforms — MCP server (universal hook #1)"
+        action={<CopyButton text={CLAUDE_CONFIG} label="Copy Claude config" />}
+      >
+        <div className="space-y-4">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            The MCP server (<span className="font-mono">mcp-server/index.mjs</span>) speaks stdio and
+            proxies the daemon brain. Point any MCP-capable platform at it — config snippets for the
+            big five below. Full guide in <span className="font-mono">mcp-server/README.md</span>.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border/60 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="pb-2 pr-4 font-medium">Tool</th>
+                  <th className="pb-2 font-medium">Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MCP_TOOLS.map((row) => (
+                  <tr key={row.tool} className="border-b border-border/30 last:border-0">
+                    <td className="py-2 pr-4 font-mono text-[11px] text-primary">{row.tool}</td>
+                    <td className="py-2 text-muted-foreground">{row.purpose}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-border/60 bg-background/50">
+              <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                <span className="font-mono text-[10.5px] text-muted-foreground">Claude Desktop · claude_desktop_config.json</span>
+                <CopyButton text={CLAUDE_CONFIG} label="Copy" />
+              </div>
+              <pre className="overflow-x-auto p-3 font-mono text-[10.5px] leading-relaxed">{CLAUDE_CONFIG}</pre>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-background/50">
+              <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                <span className="font-mono text-[10.5px] text-muted-foreground">Codex CLI · ~/.codex/config.toml</span>
+                <CopyButton text={CODEX_CONFIG} label="Copy" />
+              </div>
+              <pre className="overflow-x-auto p-3 font-mono text-[10.5px] leading-relaxed">{CODEX_CONFIG}</pre>
+            </div>
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Cursor (<span className="font-mono">.cursor/mcp.json</span>), Windsurf
+            (<span className="font-mono">~/.codeium/windsurf/mcp_config.json</span>) and OpenCode use the same
+            command/args shape — see <span className="font-mono">mcp-server/README.md</span>. Verify with{' '}
+            <span className="font-mono">npm run mcp</span> then paste the JSON-RPC handshake from the README.
+          </p>
+        </div>
+      </SectionCard>
+
+      {/* Git hook */}
+      <SectionCard title="Connect your repo — git post-commit hook">
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            One command wires a repository into the brain: every commit becomes a timeline event,
+            refreshes Knowledge Graph file nodes, and <span className="font-mono">fix:</span> commits
+            auto-resolve matching open bugs. The hook never blocks a commit (5s timeout, errors swallowed).
+          </p>
+          <div className="rounded-lg border border-border/60 bg-background/50">
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+              <span className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+                <Terminal className="size-3" /> from the CortexOS repo root
+              </span>
+              <CopyButton
+                text="node scripts/cortex-git-hook.mjs install --repo /path/to/your/repo --slug saas-crm --platform codex"
+                label="Copy"
+              />
+            </div>
+            <pre className="overflow-x-auto p-3 font-mono text-[11px] leading-relaxed">
+{`node scripts/cortex-git-hook.mjs install --repo /path/to/your/repo --slug saas-crm --platform codex
+# uninstall:  node scripts/cortex-git-hook.mjs uninstall --repo /path/to/your/repo
+# no hook? use the incremental backfill instead:
+curl -X POST ${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/cortex/git/ingest \\
+  -H 'Content-Type: application/json' -d '{"slug":"saas-crm"}'`}
+            </pre>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Extension */}
+      <SectionCard title="Connect your browser — the extension (universal hook #3)">
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            The MV3 extension rewrites any chat input into a Tier-1 prompt and injects sync packets on
+            any web AI. Load it unpacked from the <span className="font-mono">extension/</span> folder
+            (or the zip in the project downloads), set the daemon URL in its settings, then:
+          </p>
+          <ul className="space-y-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            <li><span className="font-mono text-foreground">Ctrl/Cmd+Shift+Space</span> — rewrite the focused chat input in place (global hotkey)</li>
+            <li><span className="font-mono text-foreground">Ctrl/Cmd+Shift+V</span> — inject the cross-platform sync packet (executes a real handoff)</li>
+            <li>Popup — daemon status, project/engine picker, copy packet, capture clipboard as interaction</li>
+            <li>Try the live browser E2E of the real extension code: <a className="text-primary underline underline-offset-2" href="/cortex-extension-test.html" target="_blank" rel="noreferrer">/cortex-extension-test.html</a></li>
+          </ul>
         </div>
       </SectionCard>
 
@@ -144,6 +308,7 @@ export function DocsView() {
                         : row.method.startsWith('POST') ? 'font-mono text-[10px] text-primary'
                         : row.method.startsWith('DELETE') ? 'font-mono text-[10px] text-rose-400'
                         : row.method.startsWith('PATCH') ? 'font-mono text-[10px] text-amber-500'
+                        : row.method.startsWith('PUT') ? 'font-mono text-[10px] text-teal-400'
                         : 'font-mono text-[10px] text-teal-400'
                       }
                     >
@@ -158,11 +323,11 @@ export function DocsView() {
           </table>
         </div>
         <div className="mt-4 rounded-lg border border-border/60 bg-background/50 p-3">
-          <p className="font-mono text-[11px] text-muted-foreground"># The flagship, in one line:</p>
+          <p className="font-mono text-[11px] text-muted-foreground"># The Phase 2 flagship, in one line:</p>
           <pre className="mt-1.5 overflow-x-auto font-mono text-[11px] leading-relaxed">
-{`curl -X POST ${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/cortex/rewrite \\
+{`curl -X POST ${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/api/cortex/sync/saas-crm \\
   -H 'Content-Type: application/json' \\
-  -d '{"projectId":"<id>","prompt":"add stripe webhook for subscription renewal and update user db","engine":"fast"}'`}
+  -d '{"targetPlatform":"hermes"}'`}
           </pre>
         </div>
       </SectionCard>
@@ -186,7 +351,7 @@ export function DocsView() {
         <ol className="space-y-3">
           <RoadmapItem
             status="done"
-            title="Phase 1 — The Brain & Prompt Interceptor (this build)"
+            title="Phase 1 — The Brain & Prompt Interceptor"
             items={[
               'Local daemon API + SQLite Knowledge Graph + Project DNA generator',
               'Tier-1 Prompt Rewriter (Fast-Path deterministic + Deep-Path Ollama + Cloud GLM)',
@@ -194,12 +359,13 @@ export function DocsView() {
             ]}
           />
           <RoadmapItem
-            status="next"
-            title="Phase 2 — Cross-Platform Sync Engine"
+            status="done"
+            title="Phase 2 — Cross-Platform Sync Engine (this build)"
             items={[
-              'MCP server (cortex_sync, cortex_get_dna, cortex_log_decision) for Codex / OpenCode / Cursor / Claude',
-              'File watcher + Git hooks: work done in any tool auto-updates the Knowledge Graph',
-              'State packet auto-injection when switching platforms (delta-sync on the hash shown in the Sync tab)',
+              'Full CrossPlatformSyncPacket + handoff audit trail + platform flip',
+              'MCP server (6 tools) for Codex / OpenCode / Cursor / Windsurf / Claude / Hermes',
+              'File watcher (auto-start) + git post-commit hook + git log backfill + bug auto-resolution',
+              'Episodic vector store with semantic search; MV3 browser extension with global hotkeys',
             ]}
           />
           <RoadmapItem
@@ -208,6 +374,7 @@ export function DocsView() {
             items={[
               'Local Ollama agents with tool execution (file read/write, web search, terminal)',
               'Smart Router completes boilerplate/research locally, sends only the core delta to the main model',
+              'preExecutedByLocalAgent in the sync packet gets its first real entries',
             ]}
           />
           <RoadmapItem

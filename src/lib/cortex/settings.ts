@@ -10,6 +10,7 @@ const SETTING_KEY = 'daemon'
 export const DEFAULT_SETTINGS: DaemonSettings = {
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   ollamaModel: 'qwen2.5-coder:7b',
+  ollamaEmbeddingModel: 'nomic-embed-text',
   defaultEngine: 'fast',
 }
 
@@ -21,6 +22,10 @@ export async function getSettings(): Promise<DaemonSettings> {
     return {
       ollamaBaseUrl: typeof parsed.ollamaBaseUrl === 'string' && parsed.ollamaBaseUrl ? parsed.ollamaBaseUrl : DEFAULT_SETTINGS.ollamaBaseUrl,
       ollamaModel: typeof parsed.ollamaModel === 'string' && parsed.ollamaModel ? parsed.ollamaModel : DEFAULT_SETTINGS.ollamaModel,
+      ollamaEmbeddingModel:
+        typeof parsed.ollamaEmbeddingModel === 'string' && parsed.ollamaEmbeddingModel
+          ? parsed.ollamaEmbeddingModel
+          : DEFAULT_SETTINGS.ollamaEmbeddingModel,
       defaultEngine: parsed.defaultEngine === 'deep' || parsed.defaultEngine === 'cloud' ? parsed.defaultEngine : 'fast',
     }
   } catch {
@@ -39,6 +44,10 @@ export async function saveSettings(patch: Partial<DaemonSettings>): Promise<Daem
       typeof patch.ollamaModel === 'string' && patch.ollamaModel.trim().length > 0
         ? patch.ollamaModel.trim()
         : current.ollamaModel,
+    ollamaEmbeddingModel:
+      typeof patch.ollamaEmbeddingModel === 'string' && patch.ollamaEmbeddingModel.trim().length > 0
+        ? patch.ollamaEmbeddingModel.trim()
+        : current.ollamaEmbeddingModel,
     defaultEngine:
       patch.defaultEngine === 'fast' || patch.defaultEngine === 'deep' || patch.defaultEngine === 'cloud'
         ? patch.defaultEngine

@@ -35,6 +35,20 @@ export type IntentType =
 
 export type EngineKind = 'fast' | 'deep' | 'cloud'
 
+export type AIPlatform =
+  | 'codex'
+  | 'hermes'
+  | 'opencode'
+  | 'cursor'
+  | 'windsurf'
+  | 'claude'
+  | 'chatgpt'
+  | 'local_ollama'
+
+export const AI_PLATFORMS: readonly AIPlatform[] = [
+  'codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama',
+] as const
+
 export type GraphNodeKind =
   | 'root'
   | 'module'
@@ -271,12 +285,119 @@ export interface StatePacket {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2 — Cross-Platform Delta Sync Packet (blueprint Part 1 §4, exact)
+// ---------------------------------------------------------------------------
+
+export interface SyncPacketHeader {
+  projectId: string
+  projectName: string
+  stateHash: string
+  previousPlatform: string
+  targetPlatform: string
+  syncedAtIso: string
+}
+
+export interface DnaSnapshot {
+  stackSummary: string
+  activeConstraints: string[]
+}
+
+export interface ScopedGraphContext {
+  activeModule: string
+  relevantDecisions: Array<{ id: string; title: string; constraint: string }>
+  relevantSymbols: Array<{ symbolId: string; signature: string }>
+  openBugsInScope: Array<{ id: string; title: string; rootCause: string }>
+}
+
+export interface ContinuityState {
+  lastCompletedAction: string
+  activeTask: {
+    id: string
+    title: string
+    preExecutedByLocalAgent: string[]
+    remainingCoreWork: string
+  } | null
+  nextPendingTasks: string[]
+}
+
+export interface CrossPlatformSyncPacket extends StatePacket {
+  header: SyncPacketHeader
+  dnaSnapshot: DnaSnapshot
+  scopedGraphContext: ScopedGraphContext
+  continuityState: ContinuityState
+}
+
+export interface SyncHandoffRecord {
+  id: string
+  fromPlatform: string
+  toPlatform: string
+  stateHash: string
+  activeModule: string | null
+  packetTokens: number
+  createdAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Episodic store (blueprint §3 Tier-3 memory)
+// ---------------------------------------------------------------------------
+
+export interface EpisodeSearchResult {
+  interactionId: string
+  title: string | null
+  platform: string | null
+  summary: string | null
+  createdAt: string
+  score: number
+  snippet: string
+}
+
+export interface EpisodicSearchResponse {
+  query: string
+  provider: string
+  results: EpisodeSearchResult[]
+  memories: Array<RelevantMemory & { createdAt: string }>
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — File watcher & git intelligence
+// ---------------------------------------------------------------------------
+
+export interface WatcherStatus {
+  projectId: string
+  slug: string
+  projectName: string
+  running: boolean
+  rootPath: string | null
+  watchEnabled: boolean
+  watchedFiles: number
+  events: number
+  errors: number
+  startedAt: string | null
+  lastEventAt: string | null
+  lastEventPath: string | null
+  lastError: string | null
+}
+
+export interface GitCommitRecord {
+  id: string
+  hash: string
+  message: string
+  author: string | null
+  platform: string | null
+  filesCount: number
+  files: Array<{ path: string; status: string }>
+  committedAt: string
+  ingestedFrom: string
+}
+
+// ---------------------------------------------------------------------------
 // Daemon settings & health
 // ---------------------------------------------------------------------------
 
 export interface DaemonSettings {
   ollamaBaseUrl: string
   ollamaModel: string
+  ollamaEmbeddingModel: string
   defaultEngine: EngineKind
 }
 
@@ -301,6 +422,9 @@ export interface DaemonHealth {
     edges: number
     interactions: number
     promptSessions: number
+    handoffs: number
+    commits: number
+    episodes: number
   }
 }
 
@@ -337,6 +461,13 @@ export interface DashboardMetrics {
     edges: number
     interactions: number
     promptSessions: number
+  }
+  sync: {
+    handoffs: number
+    commits: number
+    episodes: number
+    watchersRunning: number
+    lastHandoffAt: string | null
   }
   tokenSavings: {
     tokensRaw: number

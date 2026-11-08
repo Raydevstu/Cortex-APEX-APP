@@ -27,10 +27,11 @@ export function SettingsView() {
 
   // Draft pattern: local edits override the persisted settings; no
   // effect-synced state (values derive from `effective` on every render).
-  const [draft, setDraft] = useState<Partial<{ ollamaBaseUrl: string; ollamaModel: string; defaultEngine: EngineKind }> | null>(null)
+  const [draft, setDraft] = useState<Partial<{ ollamaBaseUrl: string; ollamaModel: string; ollamaEmbeddingModel: string; defaultEngine: EngineKind }> | null>(null)
   const effective = {
     ollamaBaseUrl: draft?.ollamaBaseUrl ?? settingsData?.settings.ollamaBaseUrl ?? 'http://127.0.0.1:11434',
     ollamaModel: draft?.ollamaModel ?? settingsData?.settings.ollamaModel ?? 'qwen2.5-coder:7b',
+    ollamaEmbeddingModel: draft?.ollamaEmbeddingModel ?? settingsData?.settings.ollamaEmbeddingModel ?? 'nomic-embed-text',
     defaultEngine: draft?.defaultEngine ?? settingsData?.settings.defaultEngine ?? ('fast' as EngineKind),
   }
   const setField = function <K extends keyof typeof effective>(key: K, value: (typeof effective)[K]) {
@@ -124,6 +125,22 @@ export function SettingsView() {
                 ))}
               </div>
             ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ollama-embed-model">Embedding model (episodic store)</Label>
+            <Input
+              id="ollama-embed-model"
+              value={effective.ollamaEmbeddingModel}
+              onChange={(e) => setField('ollamaEmbeddingModel', e.target.value)}
+              placeholder="nomic-embed-text"
+              className="font-mono text-xs"
+            />
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Phase 2: captured interactions are embedded for semantic history search. When Ollama is
+              reachable this model is used; otherwise the deterministic local hashed embedder takes
+              over (offline-safe, same cosine behaviour).
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 pt-1">

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CortexOS — Settings</title>
+  <link rel="stylesheet" href="popup.css" />
+  <style>
+    body { width: 100%; max-width: 520px; padding: 24px; }
+    .panel { border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; margin-bottom: 16px; }
+    input[type="text"] {
+      width: 100%; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14); background: #17171f; color: #e4e4ef; font-size: 13px;
+    }
+    h2 { font-size: 14px; margin: 0 0 4px; }
+    p.about { font-size: 12px; color: #a1a1b5; line-height: 1.55; }
+    kbd { padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.18); background: #1d1d28; font-size: 10px; }
+    #saved { color: #34d399; font-size: 11px; margin-left: 8px; opacity: 0; transition: opacity 0.2s; }
+    button { width: auto; padding: 8px 18px; }
+  </style>
+</head>
+<body>
+  <h2>CortexOS extension settings</h2>
+  <p class="about">
+    The extension talks to your local Cortex daemon. Rewrite any chat input with
+    <kbd>Ctrl/Cmd+Shift+Space</kbd> and inject the cross-platform sync packet with
+    <kbd>Ctrl/Cmd+Shift+V</kbd> — on ChatGPT, Claude, Gemini, Codex web, Bolt, v0 or any page with a text box.
+  </p>
+
+  <section class="panel">
+    <label for="daemonUrl">Daemon URL</label>
+    <input type="text" id="daemonUrl" placeholder="http://localhost:3000" />
+
+    <label for="defaultSlug">Default project slug</label>
+    <input type="text" id="defaultSlug" placeholder="saas-crm" />
+
+    <label for="engine">Default rewrite engine</label>
+    <select id="engine">
+      <option value="fast">fast — deterministic (&lt;50ms)</option>
+      <option value="deep">deep — local Ollama</option>
+      <option value="cloud">cloud — GLM refinement</option>
+    </select>
+
+    <label for="platform">Default handoff target</label>
+    <select id="platform">
+      <option value="codex">codex</option>
+      <option value="hermes">hermes</option>
+      <option value="opencode">opencode</option>
+      <option value="cursor">cursor</option>
+      <option value="windsurf">windsurf</option>
+      <option value="claude">claude</option>
+      <option value="chatgpt">chatgpt</option>
+      <option value="local_ollama">local_ollama</option>
+    </select>
+
+    <div style="margin-top:14px; display:flex; align-items:center;">
+      <button id="save" class="primary">Save settings</button>
+      <span id="saved">saved ✔</span>
+    </div>
+  </section>
+
+  <script src="lib/core.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

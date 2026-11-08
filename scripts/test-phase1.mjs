@@ -122,8 +122,8 @@ async function main() {
     assertEqual(status, 200, 'status')
     assertEqual(json.status, 'online', 'daemon status')
     assertEqual(json.database, 'ok', 'database')
-    assert(json.version === '0.1.0', 'version missing')
-    assert(json.phase.includes('Phase 1'), 'phase label missing')
+    assert(/^0\.\d+\.\d+$/.test(json.version), 'version missing') // 0.1.0 (Phase 1) → 0.2.0 (Phase 2)
+    assert(json.phase.includes('Phase'), 'phase label missing')
     assert(typeof json.counts.projects === 'number', 'counts missing')
     assert('reachable' in json.ollama, 'ollama status missing')
     health = json

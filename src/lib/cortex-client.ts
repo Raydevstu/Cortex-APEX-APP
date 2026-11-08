@@ -3,15 +3,20 @@
  * All requests use relative paths (gateway-safe).
  */
 import type {
+  CrossPlatformSyncPacket,
   DaemonHealth,
   DaemonSettings,
   DashboardMetrics,
   DnaDocument,
   EngineKind,
+  EpisodicSearchResponse,
+  GitCommitRecord,
   OllamaStatus,
   ProjectSummary,
   RewriteResult,
   StatePacket,
+  SyncHandoffRecord,
+  WatcherStatus,
 } from '@/lib/cortex/types'
 
 export interface MemoryRecord {
@@ -166,6 +171,27 @@ export const cortexApi = {
   rewriteHistory: (projectId: string) =>
     api<{ sessions: PromptSessionRecord[] }>(`/rewrite?projectId=${projectId}`),
   statePacket: (slug: string) => api<StatePacket>(`/sync/${slug}`),
+  syncHandoff: (slug: string, targetPlatform: string, module?: string) =>
+    api<{ handoffId: string; packet: CrossPlatformSyncPacket }>(`/sync/${slug}`, {
+      method: 'POST',
+      body: JSON.stringify({ targetPlatform, ...(module ? { module } : {}) }),
+    }),
+  handoffs: (slug: string) => api<{ handoffs: SyncHandoffRecord[] }>(`/sync/${slug}/handoffs`),
+  watchStatus: (projectId?: string) =>
+    api<{ watchers: WatcherStatus[] }>(`/watch${projectId ? `?projectId=${projectId}` : ''}`),
+  watchAction: (projectId: string, action: 'start' | 'stop', persist = true) =>
+    api<{ started?: boolean; stopped?: boolean; reason?: string; status?: WatcherStatus }>('/watch', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, action, persist }),
+    }),
+  gitCommits: (projectId: string) => api<{ commits: GitCommitRecord[] }>(`/git?projectId=${projectId}`),
+  gitIngest: (projectId: string) =>
+    api<{ ingested: number; duplicates: number; filesTouched: number; note?: string }>('/git/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ projectId }),
+    }),
+  episodicSearch: (input: { projectId?: string; slug?: string; query: string; k?: number }) =>
+    api<EpisodicSearchResponse>('/search', { method: 'POST', body: JSON.stringify(input) }),
   settings: () => api<{ settings: DaemonSettings }>('/settings'),
   saveSettings: (patch: Partial<DaemonSettings>) =>
     api<{ settings: DaemonSettings }>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),

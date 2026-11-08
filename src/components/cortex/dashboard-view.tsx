@@ -8,7 +8,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   FolderKanban, Brain, GitBranch, Coins, Sparkles, ScrollText, AlertTriangle,
-  ListTodo, Bug, Plus, FlaskConical, ArrowRight, Activity,
+  ListTodo, Bug, Plus, FlaskConical, ArrowRight, Activity, ArrowRightLeft, History,
+  GitCommitHorizontal, Radar,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -26,6 +27,12 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   'interaction.logged': <Activity className="size-3.5" />,
   'memory.resolved': <ListTodo className="size-3.5" />,
   'dna.updated': <Brain className="size-3.5" />,
+  'sync.handoff': <ArrowRightLeft className="size-3.5" />,
+  'git.commit': <GitCommitHorizontal className="size-3.5" />,
+  'file.changed': <Radar className="size-3.5" />,
+  'file.added': <Radar className="size-3.5" />,
+  'file.removed': <Radar className="size-3.5" />,
+  'watcher.started': <Radar className="size-3.5" />,
 }
 
 export function DashboardView({ navigate }: { navigate: (view: View) => void }) {
@@ -67,7 +74,7 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
     )
   }
 
-  const { totals, tokenSavings, daily, recentEvents, openItems } = metrics
+  const { totals, tokenSavings, daily, recentEvents, openItems, sync } = metrics
   const hasData = totals.projects > 0
 
   const chartData = daily.map((d) => ({
@@ -82,14 +89,14 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
         <div className="absolute -right-16 -top-16 size-56 rounded-full bg-primary/10 blur-3xl" aria-hidden />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-2xl">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary">CortexOS · Phase 1</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary">CortexOS · Phase 2</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
               The persistent brain for AI-assisted development
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Memory engine, Knowledge Graph and Project DNA online. Raw prompts are rewritten into
-              Tier-1 enterprise specifications with zero-token symbolic context — paste the result into
-              Codex, Hermes, Claude or any coding AI.
+              Memory engine, Knowledge Graph and Project DNA online — now with cross-platform sync:
+              file watchers, git hooks, an MCP server and episodic vector memory keep every platform
+              (Codex, Hermes, OpenCode, Claude…) on the same page, for ~150–300 tokens per handoff.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -127,6 +134,38 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
           value={formatNumber(tokenSavings.tokensContextAvoided)}
           sub={`${tokenSavings.savingsPct}% of naive context · avg ${tokenSavings.avgLatencyMs}ms/rewrite`}
           icon={<Coins className="size-4.5" />}
+          accent="emerald"
+        />
+      </div>
+
+      {/* ---- Cross-platform sync strip ---- */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Platform handoffs"
+          value={formatNumber(sync?.handoffs ?? 0)}
+          sub={sync?.lastHandoffAt ? `last ${timeAgo(sync.lastHandoffAt)}` : 'none yet — try the Sync tab'}
+          icon={<ArrowRightLeft className="size-4.5" />}
+          accent="violet"
+        />
+        <StatCard
+          label="Episodes indexed"
+          value={formatNumber(sync?.episodes ?? 0)}
+          sub="episodic vector store (semantic search)"
+          icon={<History className="size-4.5" />}
+          accent="teal"
+        />
+        <StatCard
+          label="Git commits ingested"
+          value={formatNumber(sync?.commits ?? 0)}
+          sub="webhook + git log backfill"
+          icon={<GitCommitHorizontal className="size-4.5" />}
+          accent="amber"
+        />
+        <StatCard
+          label="File watchers"
+          value={`${sync?.watchersRunning ?? 0} live`}
+          sub="workspace → Knowledge Graph"
+          icon={<Radar className="size-4.5" />}
           accent="emerald"
         />
       </div>

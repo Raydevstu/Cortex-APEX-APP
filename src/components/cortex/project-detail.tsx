@@ -1,10 +1,11 @@
 'use client'
 
 /**
- * Project detail — DNA, Memories, Knowledge Graph, Timeline and Sync tabs.
+ * Project detail — DNA, Memories, Knowledge Graph, Timeline, Sync, Watch
+ * (file watcher + git) and History (episodic search) tabs.
  */
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Brain, Database, GitBranch, ScrollText, RefreshCcw, Sparkles } from 'lucide-react'
+import { ArrowLeft, Brain, Database, GitBranch, ScrollText, RefreshCcw, Sparkles, Radar, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -16,6 +17,8 @@ import { MemoriesTab } from './memories-tab'
 import { GraphTab } from './graph-tab'
 import { TimelineTab } from './timeline-tab'
 import { SyncTab } from './sync-tab'
+import { WatchTab } from './watch-tab'
+import { HistoryTab } from './history-tab'
 
 export function ProjectDetail({
   projectId,
@@ -23,7 +26,7 @@ export function ProjectDetail({
   navigate,
 }: {
   projectId: string
-  tab?: 'dna' | 'memories' | 'graph' | 'timeline' | 'sync'
+  tab?: 'dna' | 'memories' | 'graph' | 'timeline' | 'sync' | 'watch' | 'history'
   navigate: (view: View) => void
 }) {
   const { data, isLoading, error } = useQuery({
@@ -101,8 +104,10 @@ export function ProjectDetail({
           <TabsTrigger value="dna" className="gap-1.5"><Brain className="size-3.5" /> PROJECT DNA</TabsTrigger>
           <TabsTrigger value="memories" className="gap-1.5"><ScrollText className="size-3.5" /> Memories</TabsTrigger>
           <TabsTrigger value="graph" className="gap-1.5"><GitBranch className="size-3.5" /> Knowledge Graph</TabsTrigger>
+          <TabsTrigger value="watch" className="gap-1.5"><Radar className="size-3.5" /> Watch</TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5"><History className="size-3.5" /> History</TabsTrigger>
           <TabsTrigger value="timeline" className="gap-1.5"><RefreshCcw className="size-3.5" /> Timeline</TabsTrigger>
-          <TabsTrigger value="sync" className="gap-1.5"><Database className="size-3.5" /> Sync packet</TabsTrigger>
+          <TabsTrigger value="sync" className="gap-1.5"><Database className="size-3.5" /> Sync</TabsTrigger>
         </TabsList>
         <TabsContent value="dna">
           <DnaTab projectId={projectId} projectRootPath={project.rootPath} hasDna={Boolean(project.dna)} dna={project.dna} />
@@ -113,11 +118,17 @@ export function ProjectDetail({
         <TabsContent value="graph">
           <GraphTab projectId={projectId} />
         </TabsContent>
+        <TabsContent value="watch">
+          <WatchTab projectId={projectId} slug={project.slug} rootPath={project.rootPath} />
+        </TabsContent>
+        <TabsContent value="history">
+          <HistoryTab projectId={projectId} projectName={project.name} />
+        </TabsContent>
         <TabsContent value="timeline">
           <TimelineTab projectId={projectId} />
         </TabsContent>
         <TabsContent value="sync">
-          <SyncTab slug={project.slug} />
+          <SyncTab slug={project.slug} projectName={project.name} />
         </TabsContent>
       </Tabs>
     </div>

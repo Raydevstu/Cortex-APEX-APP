@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Phase 2: chokidar (file watcher) must stay external to the server bundle —
+  // it relies on Node fs events at runtime and must not be traced/bundled.
+  serverExternalPackages: ["chokidar"],
 };
 
 export default nextConfig;

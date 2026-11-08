@@ -27,7 +27,7 @@ export type View =
   | { name: 'dashboard' }
   | { name: 'studio'; projectId?: string }
   | { name: 'projects' }
-  | { name: 'project'; projectId: string; tab?: 'dna' | 'memories' | 'graph' | 'timeline' | 'sync' }
+  | { name: 'project'; projectId: string; tab?: 'dna' | 'memories' | 'graph' | 'timeline' | 'sync' | 'watch' | 'history' }
   | { name: 'settings' }
   | { name: 'docs' }
 
@@ -97,7 +97,7 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
             </main>
             <footer className="mt-auto border-t border-border/60 px-6 py-4">
               <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">CortexOS v0.1.0 — Phase 1 · The Brain &amp; Prompt Interceptor</span>
+                <span className="font-mono">CortexOS v0.2.0 — Phase 2 · Cross-Platform Sync Engine</span>
                 <span className="flex items-center gap-1.5">
                   <ShieldCheck className="size-3.5" /> Local-first: all memory, graph and DNA data stays on this daemon
                 </span>
@@ -170,7 +170,7 @@ function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) =>
               <span className="size-1.5 rounded-full bg-emerald-500" /> Phase 1 · Brain &amp; Rewriter — live
             </li>
             <li className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-zinc-600" /> Phase 2 · Cross-Platform Sync (MCP)
+              <span className="size-1.5 rounded-full bg-emerald-500" /> Phase 2 · Cross-Platform Sync — live
             </li>
             <li className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-zinc-600" /> Phase 3 · Pre-Execution Agents
@@ -215,7 +215,7 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
         </Button>
         <h1 className="truncate text-sm font-semibold tracking-tight sm:text-base">{title}</h1>
         <Badge variant="outline" className="hidden border-primary/30 bg-primary/10 font-mono text-[10px] text-primary sm:inline-flex">
-          cortexd · v0.1.0
+          cortexd · v0.2.0
         </Badge>
 
         <div className="ml-auto flex items-center gap-2">

@@ -6,6 +6,7 @@
  * provides a deterministic baseline for the Phase 1 test suite.
  */
 import { db } from '@/lib/db'
+import { indexEpisode } from './episodic'
 import { upsertEdge, upsertNode } from './graph'
 
 const DEMO_SLUG = 'saas-crm'
@@ -257,7 +258,7 @@ export async function seedDemoProject(): Promise<{ created: boolean; projectId: 
     },
   })
 
-  await db.interaction.create({
+  const interaction = await db.interaction.create({
     data: {
       projectId: project.id,
       title: 'Billing requirements session',
@@ -265,6 +266,44 @@ export async function seedDemoProject(): Promise<{ created: boolean; projectId: 
       rawText:
         'We decided to use Stripe for billing. Users must verify their email before accessing paid features. We still need payment retry logic for failed invoice payments. Team prefers Tailwind CSS with shadcn/ui components only.',
       memoriesExtracted: 4,
+      createdAt: daysAgoDate(9),
+    },
+  })
+
+  // Index the demo episode into the episodic vector store (real embedding).
+  try {
+    await indexEpisode(interaction.id, interaction.rawText)
+  } catch (error) {
+    console.error('[cortexd] seed episode indexing failed:', error)
+  }
+
+  // A second cross-platform episode so semantic search has signal.
+  const codexTurn = await db.interaction.create({
+    data: {
+      projectId: project.id,
+      title: 'Checkout race condition triage',
+      platform: 'codex',
+      rawText:
+        'We found a race condition in checkout: two concurrent subscription upgrades double-charge when Stripe webhooks arrive out of order. We decided to serialize webhook processing with idempotency keys. We still need to add replay protection for the dunning flow.',
+      memoriesExtracted: 2,
+      createdAt: daysAgoDate(1),
+    },
+  })
+  try {
+    await indexEpisode(codexTurn.id, codexTurn.rawText)
+  } catch (error) {
+    console.error('[cortexd] seed episode indexing failed:', error)
+  }
+
+  // A representative handoff (Codex → Hermes) in the audit trail.
+  await db.syncHandoff.create({
+    data: {
+      projectId: project.id,
+      fromPlatform: 'codex',
+      toPlatform: 'hermes',
+      stateHash: '9f8a2c',
+      activeModule: 'Payments',
+      packetTokens: 214,
       createdAt: daysAgoDate(9),
     },
   })

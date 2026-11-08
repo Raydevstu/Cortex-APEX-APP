@@ -1,4 +1,4 @@
-// CortexOS — Phase 1: The Brain & Prompt Interceptor
+// CortexOS — Phase 1 + Phase 2: The Brain & Prompt Interceptor + Cross-Platform Sync Engine
 // Storage engine: SQLite (blueprint §5 — local single-folder storage)
 // The Knowledge Graph is modelled as a property-graph triple store
 // (nodes + typed edges), functionally equivalent to the blueprint's
@@ -20,6 +20,9 @@ model Project {
   description String?
   rootPath    String?
   platform    String? // primary platform this project is built on: codex | hermes | opencode | claude | cursor | web | other
+  watchEnabled Boolean @default(false) // Phase 2: auto-start the file watcher on daemon boot
+  lastSyncedAt DateTime? // Phase 2: last cross-platform handoff
+  gitLastIngestAt DateTime? // Phase 2: last `git log` ingest watermark
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -30,6 +33,8 @@ model Project {
   promptSessions PromptSession[]
   interactions   Interaction[]
   events         TimelineEvent[]
+  handoffs       SyncHandoff[]
+  commits        GitCommit[]
 }
 
 // PROJECT DNA (blueprint "AI Project DNA" + Pillar knowledge model)
@@ -128,7 +133,9 @@ model PromptSession {
   @@index([projectId, createdAt])
 }
 
-// Episodic Chat Delta source — raw interactions logged for memory extraction
+// Episodic Chat Delta source — raw interactions logged for memory extraction.
+// Phase 2: every turn is compacted into a summary and embedded into the local
+// episodic vector store (blueprint §3, memory Tier 3 — SessionTurnNode).
 model Interaction {
   id        String  @id @default(cuid())
   projectId String
@@ -137,10 +144,52 @@ model Interaction {
   title             String?
   platform          String?
   rawText           String
-  memoriesExtracted Int @default(0)
-  createdAt         DateTime @default(now())
+  memoriesExtracted Int     @default(0)
+  summary           String? // compact turn summary (~60 tokens, extractive)
+  embedding         String? // JSON: number[] — L2-normalised vector (episodic store)
+  embeddingProvider String? // ollama:<model> | local-hash
+  sessionId         String? // cross-platform chat session id when known
+  createdAt          DateTime @default(now())
 
   @@index([projectId, createdAt])
+}
+
+// Cross-Platform Sync Handoff — every Codex → Hermes (or any platform pair)
+// injection is recorded (blueprint Part 1 §4, header contract).
+model SyncHandoff {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  fromPlatform String // previous active platform
+  toPlatform   String // target platform receiving the packet
+  stateHash    String
+  activeModule String?
+  packetTokens Int
+  createdAt    DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Git intelligence — commits ingested from the post-commit hook webhook or
+// `git log` backfill (blueprint §6 Phase 2: "work done in Codex automatically
+// updates the Knowledge Graph").
+model GitCommit {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  hash      String
+  message   String
+  author    String?
+  platform  String? // platform hint: which AI produced this commit (codex | hermes | user…)
+  filesCount Int    @default(0)
+  files     String  @default("[]") // JSON: Array<{path, status}>
+  committedAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, hash])
+  @@index([projectId, committedAt])
 }
 
 // Development Timeline (Pillar 11)

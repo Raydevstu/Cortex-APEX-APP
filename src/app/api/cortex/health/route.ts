@@ -10,23 +10,26 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     const settings = await getSettings()
-    const [projects, memories, nodes, edges, interactions, promptSessions] = await Promise.all([
+    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes] = await Promise.all([
       db.project.count(),
       db.memory.count(),
       db.graphNode.count(),
       db.graphEdge.count(),
       db.interaction.count(),
       db.promptSession.count(),
+      db.syncHandoff.count(),
+      db.gitCommit.count(),
+      db.interaction.count({ where: { embedding: { not: null } } }),
     ])
     const ollama = await getOllamaStatus(settings.ollamaBaseUrl)
 
     const health: DaemonHealth = {
       status: 'online',
-      version: '0.1.0',
-      phase: 'Phase 1 — The Brain & Prompt Interceptor',
+      version: '0.2.0',
+      phase: 'Phase 2 — Cross-Platform Sync Engine',
       database: 'ok',
       ollama,
-      counts: { projects, memories, nodes, edges, interactions, promptSessions },
+      counts: { projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes },
     }
     return ok(health)
   } catch (error) {

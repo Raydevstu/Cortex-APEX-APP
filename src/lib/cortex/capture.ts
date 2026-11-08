@@ -1,11 +1,13 @@
 /**
  * Memory capture service — wires the Universal AI Memory Engine into the
  * daemon: logs the raw interaction, extracts typed memories (deduped),
- * links mentioned tech into the Knowledge Graph, and records a timeline
- * event. This is the write path of "User → CortexOS → <any AI platform>".
+ * links mentioned tech into the Knowledge Graph, indexes the turn into the
+ * episodic vector store (Phase 2) and records a timeline event. This is the
+ * write path of "User → CortexOS → <any AI platform>".
  */
 import { db } from '@/lib/db'
 import { extractMemories, mentionedTech } from './extract'
+import { indexEpisode, type EpisodeIndex } from './episodic'
 import { upsertNode, upsertEdge } from './graph'
 import type { ExtractedMemory } from './types'
 
@@ -13,6 +15,7 @@ export interface CaptureResult {
   interactionId: string
   extracted: Array<ExtractedMemory & { id: string; deduped: boolean }>
   techLinked: string[]
+  episode: { summary: string; provider: string; tokensSaved: number } | null
 }
 
 export async function captureInteraction(input: {
@@ -92,17 +95,30 @@ export async function captureInteraction(input: {
     }
   }
 
-  // 6. Timeline
+  // 6. Episodic vector store (Phase 2 — blueprint §3 Tier-3 memory)
+  let episode: EpisodeIndex | null = null
+  try {
+    episode = await indexEpisode(interaction.id, text)
+  } catch (error) {
+    console.error('[cortexd] episodic indexing failed:', error)
+  }
+
+  // 7. Timeline
   await db.timelineEvent.create({
     data: {
       projectId: project.id,
       kind: 'interaction.logged',
-      message: `Interaction captured${input.platform ? ` from ${input.platform}` : ''}: ${created.length} new memor${created.length === 1 ? 'y' : 'ies'} extracted, ${techLinked.length} tech linked.`,
+      message: `Interaction captured${input.platform ? ` from ${input.platform}` : ''}: ${created.length} new memor${created.length === 1 ? 'y' : 'ies'} extracted, ${techLinked.length} tech linked${episode ? `, episode indexed (${episode.provider})` : ''}.`,
       meta: JSON.stringify({ interactionId: interaction.id }),
     },
   })
 
-  return { interactionId: interaction.id, extracted: fresh, techLinked }
+  return {
+    interactionId: interaction.id,
+    extracted: fresh,
+    techLinked,
+    episode: episode ? { summary: episode.summary, provider: episode.provider, tokensSaved: episode.tokensSaved } : null,
+  }
 }
 
 const MODULE_HINTS = [

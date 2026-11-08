@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 /** GET /api/cortex/metrics — dashboard aggregates + token savings series. */
 export async function GET() {
   try {
-    const [projects, memories, nodes, edges, interactions, promptSessions] = await Promise.all([
+    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes, lastHandoff, watcherStates] = await Promise.all([
       db.project.count(),
       db.memory.findMany({ select: { type: true } }),
       db.graphNode.count(),
@@ -24,6 +24,11 @@ export async function GET() {
           createdAt: true,
         },
       }),
+      db.syncHandoff.count(),
+      db.gitCommit.count(),
+      db.interaction.count({ where: { embedding: { not: null } } }),
+      db.syncHandoff.findFirst({ orderBy: { createdAt: 'desc' } }),
+      import('@/lib/cortex/watcher').then((m) => m.watcherStatus()),
     ])
 
     const memoriesByType: Record<string, number> = {}
@@ -77,6 +82,13 @@ export async function GET() {
         edges,
         interactions,
         promptSessions: promptSessions.length,
+      },
+      sync: {
+        handoffs,
+        commits,
+        episodes,
+        watchersRunning: watcherStates.filter((w) => w.running).length,
+        lastHandoffAt: lastHandoff ? lastHandoff.createdAt.toISOString() : null,
       },
       tokenSavings: {
         tokensRaw,
