@@ -19,6 +19,12 @@
  *   cortex_capture_interaction — memory extraction from a raw chat transcript
  *   cortex_preexecute          — Phase 3 pre-execution local agent (triage → tools → Tier-1 payload)
  *   cortex_extract_memory      — Phase 3 Engine 3 turn analysis → ExtractedMemoryDelta
+ *   cortex_state               — Phase 4 Visual Command Center state: graph,
+ *                                 telemetry, timeline, CTO advisories and the
+ *                                 AST Semantic Scope Lock (read + mutate) — CLI access
+ *   cortex_cto                 — Phase 4 AI CTO mode: workspace audit + Multi-Agent
+ *                                 DAG orchestration (build / dispatch / confirm /
+ *                                 archive) — CLI access
  *
  * Configuration:
  *   CORTEX_DAEMON_URL  daemon base URL (default http://localhost:3000)
@@ -81,12 +87,135 @@ async function resolveProject(slug) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4 formatters — CLI-friendly renders of the Command Center contracts
+// ---------------------------------------------------------------------------
+
+/** Compact dashboard-state render (what the browser shows, for the terminal). */
+function formatDashboardState(state, { includeXml = false } = {}) {
+  const labels = {}
+  for (const node of state.graph.nodes) labels[node.label] = (labels[node.label] ?? 0) + 1
+  const graphSummary = Object.entries(labels)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, count]) => `${label} ×${count}`)
+    .join(', ')
+
+  const scope = state.scopeLock
+  const t = state.telemetry
+  const activeTask = state.activeTask?.taskId
+    ? `${state.activeTask.title} [${state.activeTask.status}]`
+    : '(none)'
+
+  const recommendations = (state.ctoRecommendations ?? []).map(
+    (r, i) => {
+      const impact = r.impactedSymbols?.length > 0 ? `\n   Impacted: ${r.impactedSymbols.slice(0, 4).join(', ')}${r.impactedSymbols.length > 4 ? ', …' : ''}` : ''
+      const savings = r.suggestedAction?.estimatedTokenSavings ? ` · saves ~${r.suggestedAction.estimatedTokenSavings} tokens` : ''
+      return `${i + 1}. [${r.severity}] ${r.category} — ${r.title}\n   ${r.rationale}${impact}\n   → ${r.suggestedAction?.actionType ?? 'REVIEW'}: ${r.suggestedAction?.commandPreview ?? '—'}${savings}`
+    },
+  ).join('\n')
+
+  const timeline = (state.timeline ?? []).slice(0, 6).map(
+    (e) => `· [${e.kind}] ${e.summary}${e.platform ? ` (${e.platform})` : ''} — ${e.timestamp.slice(0, 16).replace('T', ' ')}`,
+  ).join('\n')
+
+  const lines = [
+    `CORTEX STATE — ${state.projectName} (${state.projectSlug}) · DNA v${state.projectDnaVersion}`,
+    `Active task: ${activeTask}`,
+    `Scope lock: ${scope.allowedSymbolFqns.length} allowed · ${scope.lockedSymbolFqns.length} locked · ${scope.forbiddenPaths.length} forbidden path(s) (source: ${scope.source}, updated ${scope.updatedAt.slice(0, 16).replace('T', ' ')})`,
+    `Graph: ${state.graph.nodes.length} nodes / ${state.graph.edges.length} edges — ${graphSummary}`,
+    `Telemetry: ${t.totalPromptsIntercepted} prompts intercepted · ${t.netTokensSaved.toLocaleString('en-US')} net tokens saved (${t.compressionRatioPct}% compression, $${t.estimatedCostSavingsUsd}) · ${t.localOffloadPct}% local offload`,
+    `Workspace audit: ${state.audit.symbolsScanned} symbols / ${state.audit.filesScanned} files scanned (${state.audit.cache === 'hit' ? 'cache hit' : 'fresh scan'} @ ${state.audit.scannedAt.slice(0, 16).replace('T', ' ')})`,
+    '',
+    `CTO RECOMMENDATIONS (${state.ctoRecommendations?.length ?? 0}):`,
+    recommendations || 'None — the workspace is clean for the current scope.',
+    '',
+    `RECENT TIMELINE (last ${Math.min(6, state.timeline?.length ?? 0)}):`,
+    timeline || '(no events yet)',
+  ]
+  if (includeXml && state.syncPacketXml) {
+    lines.push('', '--- <cortex_sync_packet> XML (injectable) ---', state.syncPacketXml)
+  }
+  return lines.join('\n')
+}
+
+/** Compact CTO audit render. */
+function formatCtoAudit(payload) {
+  const { audit, plans } = payload
+  const recommendations = (audit.recommendations ?? []).map(
+    (r, i) => {
+      const impact = r.impactedSymbols?.length > 0 ? `\n   Impacted: ${r.impactedSymbols.slice(0, 4).join(', ')}${r.impactedSymbols.length > 4 ? ', …' : ''}` : ''
+      const savings = r.suggestedAction?.estimatedTokenSavings ? ` · saves ~${r.suggestedAction.estimatedTokenSavings} tokens` : ''
+      return `${i + 1}. [${r.severity}] ${r.category} — ${r.title}\n   ${r.rationale}${impact}\n   → ${r.suggestedAction?.actionType ?? 'REVIEW'}: ${r.suggestedAction?.commandPreview ?? '—'}${savings}`
+    },
+  ).join('\n')
+  const planLines = (plans ?? []).map(
+    (p) => `· ${String(p.id).slice(0, 8)} [${p.status}] ${p.goal} — ${p.subtasks.length} subtask(s), ${p.waves.length} wave(s) (created ${p.createdAt.slice(0, 10)})`,
+  ).join('\n')
+  return [
+    `AI CTO AUDIT — ${audit.projectName} (scanned ${audit.scannedAt.slice(0, 16).replace('T', ' ')}, ${audit.stats.cache === 'hit' ? 'cache hit' : 'fresh scan'})`,
+    `Workspace: ${audit.stats.symbolsScanned} symbols / ${audit.stats.filesScanned} files · ${audit.stats.layerViolations} layer violation(s) · ${audit.stats.complexityHotspots} complexity hotspot(s)`,
+    '',
+    `RECOMMENDATIONS (${audit.recommendations?.length ?? 0}):`,
+    recommendations || 'None — the workspace is clean for the current scope.',
+    '',
+    `DAG PLANS (${plans?.length ?? 0}):`,
+    planLines || '(no plans yet — build one with action BUILD_DAG_PLAN)',
+  ].join('\n')
+}
+
+/** Full DAG plan render grouped by topological wave. */
+function formatDagPlan(plan) {
+  const lines = [
+    `DAG PLAN ${String(plan.id).slice(0, 8)} — ${plan.goal}`,
+    `Status: ${plan.status} · ${plan.subtasks.length} subtask(s) in ${plan.waves.length} wave(s) · created ${plan.createdAt.slice(0, 16).replace('T', ' ')}`,
+  ]
+  if (plan.auditMeta?.estimatedTokenSavings) {
+    lines.push(`Estimated cloud-token savings: ~${plan.auditMeta.estimatedTokenSavings.toLocaleString('en-US')}`)
+  }
+  if (plan.auditMeta?.triggeredBy === 'cto-recommendation' && plan.auditMeta.recommendationId) {
+    lines.push(`Triggered by CTO recommendation ${plan.auditMeta.recommendationId.slice(0, 8)}`)
+  }
+  plan.waves.forEach((wave, waveIndex) => {
+    lines.push('', `Wave ${waveIndex + 1} (parallel):`)
+    for (const subtaskId of wave) {
+      const task = plan.subtasks.find((s) => s.id === subtaskId)
+      if (!task) continue
+      const depTitles = (task.dependencies ?? []).map(
+        (d) => plan.subtasks.find((s) => s.id === d)?.title ?? d,
+      )
+      const deps = depTitles.length > 0 ? ` · after “${depTitles.join('” + “')}”` : ''
+      lines.push(`  · ${task.title} [${task.status}] — ${task.assignedAgent}${deps}`)
+      if (task.resultSummary) lines.push(`      result: ${task.resultSummary}`)
+      for (const artifact of task.artifacts ?? []) {
+        lines.push(`      ${artifact.ok ? '✓' : '✗'} ${artifact.toolName}: ${artifact.summary}`)
+      }
+    }
+  })
+  return lines.join('\n')
+}
+
+/** Dispatch render: plan + the Tier-1 payloads awaiting the cloud tier. */
+function formatDispatch(plan) {
+  const base = formatDagPlan(plan)
+  const awaiting = (plan.subtasks ?? []).filter(
+    (s) => s.agentKind === 'cloud' && s.status === 'dispatched' && s.payload,
+  )
+  if (awaiting.length === 0) {
+    const settled = (plan.subtasks ?? []).every((s) => ['completed', 'failed', 'skipped'].includes(s.status))
+    return `${base}\n\n${settled ? 'The plan is fully settled — no cloud payloads pending.' : 'No cloud payloads pending. Confirm local outcomes or re-dispatch when dependencies complete.'}`
+  }
+  const payloads = awaiting.map(
+    (s) => `--- TIER-1 PAYLOAD — "${s.title}" → ${s.assignedAgent} ---\n(When finished, confirm with: action UPDATE_SUBTASK, planId ${plan.id}, subtaskId ${s.id}, status completed)\n\n${s.payload}`,
+  ).join('\n\n')
+  return `${base}\n\n${payloads}`
+}
+
+// ---------------------------------------------------------------------------
 // Server + tools
 // ---------------------------------------------------------------------------
 
 const server = new McpServer({
   name: 'cortexos',
-  version: '0.3.0',
+  version: '0.4.0',
 })
 
 const PLATFORMS = z.enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama'])
@@ -339,6 +468,147 @@ server.tool(
           tasks ? `\nTasks:\n${tasks}` : '',
           bugs ? `\nBugs:\n${bugs}` : '',
         ].filter(Boolean).join('\n'),
+      }],
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Phase 4 — Visual Command Center + AI CTO over MCP (CLI access)
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'cortex_state',
+  'Read or mutate the Phase 4 Visual Command Center state for a project from the CLI: live Knowledge Graph (nodes/edges with AST scope statuses), token-savings telemetry, continuity timeline, AI CTO recommendations and the AST Semantic Scope Lock. Actions: GET (default, read-only) · TOGGLE_SYMBOL_SCOPE (flip one symbol between IN_SCOPE and LOCKED, recalculation of CTO advisories included) · SET_SCOPE_LOCK (persist allowed/locked symbols + forbidden paths) · RESET_SCOPE_LOCK (clear and deterministically reseed).',
+  {
+    slug: z.string().min(1).describe('CortexOS project slug, e.g. "saas-crm"'),
+    action: z.enum(['GET', 'TOGGLE_SYMBOL_SCOPE', 'SET_SCOPE_LOCK', 'RESET_SCOPE_LOCK']).optional().describe('State action (default "GET")'),
+    fqn: z.string().min(1).max(400).optional().describe('TOGGLE_SYMBOL_SCOPE: fully-qualified symbol name (see graph ASTSymbol fqns)'),
+    allowedSymbolFqns: z.array(z.string().min(1).max(400)).max(200).optional().describe('SET_SCOPE_LOCK: symbols the next agent may touch'),
+    lockedSymbolFqns: z.array(z.string().min(1).max(400)).max(200).optional().describe('SET_SCOPE_LOCK: symbols placed under a hard lock (modifications are rejected by the daemon)'),
+    forbiddenPaths: z.array(z.string().min(1).max(400)).max(100).optional().describe('SET_SCOPE_LOCK: paths the next agent must not modify'),
+    includeXml: z.boolean().optional().describe('GET: also return the full injectable <cortex_sync_packet> XML (default false)'),
+  },
+  async ({ slug, action, fqn, allowedSymbolFqns, lockedSymbolFqns, forbiddenPaths, includeXml }) => {
+    const verb = action ?? 'GET'
+
+    if (verb === 'GET') {
+      // Resolve the slug first so unknown projects yield the actionable
+      // "Known slugs: …" error instead of a bare 404 (CLI UX parity with
+      // every other cortex_* tool).
+      const project = await resolveProject(slug)
+      const state = await daemonFetch('GET', `/state?project=${encodeURIComponent(project.id)}`)
+      return { content: [{ type: 'text', text: formatDashboardState(state, { includeXml: includeXml ?? false }) }] }
+    }
+
+    const project = await resolveProject(slug)
+    if (verb === 'TOGGLE_SYMBOL_SCOPE' && !fqn) {
+      throw new Error('TOGGLE_SYMBOL_SCOPE requires "fqn" — list ASTSymbol fqns via action GET first.')
+    }
+    if (verb === 'SET_SCOPE_LOCK' && !allowedSymbolFqns && !lockedSymbolFqns && !forbiddenPaths) {
+      throw new Error('SET_SCOPE_LOCK requires at least one of allowedSymbolFqns / lockedSymbolFqns / forbiddenPaths.')
+    }
+    const state = await daemonFetch('POST', '/state', {
+      projectId: project.id,
+      action: verb,
+      ...(verb === 'TOGGLE_SYMBOL_SCOPE' ? { fqn } : {}),
+      ...(verb === 'SET_SCOPE_LOCK'
+        ? {
+            ...(allowedSymbolFqns ? { allowedSymbolFqns } : {}),
+            ...(lockedSymbolFqns ? { lockedSymbolFqns } : {}),
+            ...(forbiddenPaths ? { forbiddenPaths } : {}),
+          }
+        : {}),
+    })
+
+    const headlines = {
+      TOGGLE_SYMBOL_SCOPE: `Toggled "${fqn}" — the daemon recomputed CTO advisories against the new scope.`,
+      SET_SCOPE_LOCK: `Scope lock persisted (${(allowedSymbolFqns ?? state.scopeLock.allowedSymbolFqns).length} allowed · ${(lockedSymbolFqns ?? state.scopeLock.lockedSymbolFqns).length} locked · ${(forbiddenPaths ?? state.scopeLock.forbiddenPaths).length} forbidden paths). Staged modifications of locked symbols will now be rejected until RESET_SCOPE_LOCK.`,
+      RESET_SCOPE_LOCK: 'Scope lock cleared and deterministically reseeded from the active task context.',
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `${headlines[verb]}\n\n${formatDashboardState(state)}`,
+      }],
+    }
+  },
+)
+
+server.tool(
+  'cortex_cto',
+  'Run the Phase 4 AI CTO from the CLI. Actions: AUDIT (default) — live workspace audit with prioritized recommendations (architecture drift, scope-lock hazards, complexity hotspots, token optimization) plus the project\'s DAG plan history · BUILD_DAG_PLAN — decompose a goal into a persisted Multi-Agent DAG of dependency-ordered waves · DISPATCH_PLAN — execute unblocked LOCAL subtasks through the real Phase 3 tool runner (0 cloud tokens) and emit scope-locked Tier-1 payloads for CLOUD subtasks · UPDATE_SUBTASK — confirm a cloud subtask outcome (unblocks dependent waves) · ARCHIVE_PLAN — retire a plan.',
+  {
+    slug: z.string().min(1).describe('CortexOS project slug'),
+    action: z.enum(['AUDIT', 'BUILD_DAG_PLAN', 'DISPATCH_PLAN', 'UPDATE_SUBTASK', 'ARCHIVE_PLAN']).optional().describe('CTO action (default "AUDIT")'),
+    force: z.boolean().optional().describe('AUDIT: bypass the workspace audit cache for a fresh scan (default false)'),
+    goal: z.string().min(4).max(2000).optional().describe('BUILD_DAG_PLAN: the objective to decompose, e.g. "add Stripe billing with webhooks"'),
+    allowedSymbolFqns: z.array(z.string().min(1).max(400)).max(50).optional().describe('BUILD_DAG_PLAN: restrict the plan\'s agents to these symbols'),
+    recommendationId: z.string().min(1).max(120).optional().describe('BUILD_DAG_PLAN: CTO recommendation that triggered the plan (links them in audit meta)'),
+    planId: z.string().min(1).optional().describe('DISPATCH_PLAN / UPDATE_SUBTASK / ARCHIVE_PLAN: the DAG plan id (see AUDIT plan list)'),
+    subtaskId: z.string().min(1).optional().describe('UPDATE_SUBTASK: the subtask id to confirm'),
+    status: z.enum(['completed', 'failed', 'skipped', 'pending']).optional().describe('UPDATE_SUBTASK: the outcome to record ("completed" unblocks dependents)'),
+  },
+  async ({ slug, action, force, goal, allowedSymbolFqns, recommendationId, planId, subtaskId, status }) => {
+    const verb = action ?? 'AUDIT'
+
+    if (verb === 'AUDIT') {
+      const project = await resolveProject(slug)
+      const payload = await daemonFetch('GET', `/cto?project=${encodeURIComponent(project.id)}${force ? '&force=true' : ''}`)
+      return { content: [{ type: 'text', text: formatCtoAudit(payload) }] }
+    }
+
+    const project = await resolveProject(slug)
+
+    if (verb === 'BUILD_DAG_PLAN') {
+      if (!goal) {
+        throw new Error('BUILD_DAG_PLAN requires "goal" — describe the objective to decompose.')
+      }
+      const { plan } = await daemonFetch('POST', '/cto', {
+        projectId: project.id,
+        action: 'BUILD_DAG_PLAN',
+        goal,
+        ...(allowedSymbolFqns ? { allowedSymbolFqns } : {}),
+        triggeredBy: recommendationId ? 'cto-recommendation' : 'manual',
+        ...(recommendationId ? { recommendationId } : {}),
+      })
+      return {
+        content: [{
+          type: 'text',
+          text: `Plan built and persisted. Dispatch it with: action DISPATCH_PLAN, planId ${plan.id}\n\n${formatDagPlan(plan)}`,
+        }],
+      }
+    }
+
+    if (!planId) {
+      throw new Error(`${verb} requires "planId" — list plans via action AUDIT.`)
+    }
+
+    if (verb === 'DISPATCH_PLAN') {
+      const { plan } = await daemonFetch('POST', '/cto', { action: 'DISPATCH_PLAN', planId })
+      return { content: [{ type: 'text', text: formatDispatch(plan) }] }
+    }
+
+    if (verb === 'UPDATE_SUBTASK') {
+      if (!subtaskId || !status) {
+        throw new Error('UPDATE_SUBTASK requires "subtaskId" and "status" (completed | failed | skipped | pending).')
+      }
+      const { plan } = await daemonFetch('POST', '/cto', { action: 'UPDATE_SUBTASK', planId, subtaskId, status })
+      const settled = plan.subtasks.every((s) => ['completed', 'failed', 'skipped'].includes(s.status))
+      return {
+        content: [{
+          type: 'text',
+          text: `Subtask ${String(subtaskId).slice(0, 8)} recorded as ${status}. ${settled ? 'The plan is fully settled.' : 'Dependent waves are now unblocked — re-dispatch with action DISPATCH_PLAN.'}\n\n${formatDagPlan(plan)}`,
+        }],
+      }
+    }
+
+    // ARCHIVE_PLAN
+    const { plan } = await daemonFetch('POST', '/cto', { action: 'ARCHIVE_PLAN', planId })
+    return {
+      content: [{
+        type: 'text',
+        text: `Plan ${String(plan.id).slice(0, 8)} archived — it no longer appears in the active plan list.\n\n${formatDagPlan(plan)}`,
       }],
     }
   },

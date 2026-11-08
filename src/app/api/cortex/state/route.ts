@@ -11,7 +11,7 @@
  */
 import { z } from 'zod'
 import { handleRouteError, ok, parseBody } from '@/lib/cortex/api'
-import { buildDashboardState, resolveDefaultProjectId } from '@/lib/cortex/dashboard-state'
+import { buildDashboardState, resolveDefaultProjectId, resolveProjectIdRef } from '@/lib/cortex/dashboard-state'
 import { getScopeLock, resetScopeLock, setScopeLock, toggleSymbolScope } from '@/lib/cortex/scope-lock'
 import { invalidateWorkspaceAudit } from '@/lib/cortex/workspace-audit'
 
@@ -47,7 +47,9 @@ const postSchema = z.object({
 export async function POST(request: Request) {
   try {
     const input = await parseBody(request, postSchema)
-    const projectId = input.projectId ?? (await resolveDefaultProjectId())
+    const projectId = input.projectId
+      ? await resolveProjectIdRef(input.projectId)
+      : await resolveDefaultProjectId()
 
     if (input.action === 'TOGGLE_SYMBOL_SCOPE') {
       if (!input.fqn) {

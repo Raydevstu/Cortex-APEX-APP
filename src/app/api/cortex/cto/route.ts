@@ -15,7 +15,7 @@
  */
 import { z } from 'zod'
 import { handleRouteError, ok, parseBody } from '@/lib/cortex/api'
-import { resolveDefaultProjectId } from '@/lib/cortex/dashboard-state'
+import { resolveDefaultProjectId, resolveProjectIdRef } from '@/lib/cortex/dashboard-state'
 import { AICtoEngine } from '@/orchestrator/ai-cto-engine'
 import { invalidateWorkspaceAudit } from '@/lib/cortex/workspace-audit'
 import type { CtoAuditResponse } from '@/lib/cortex/types'
@@ -26,8 +26,12 @@ const engine = new AICtoEngine()
 
 async function resolveProject(request: Request): Promise<string> {
   const slug = new URL(request.url).searchParams.get('project')
-  if (slug && slug.trim()) return slug.trim()
+  if (slug && slug.trim()) return resolveProjectIdRef(slug.trim())
   return resolveDefaultProjectId()
+}
+
+async function resolveBodyProject(projectId?: string): Promise<string> {
+  return projectId ? resolveProjectIdRef(projectId) : resolveDefaultProjectId()
 }
 
 async function buildAuditResponse(projectId: string, force = false): Promise<CtoAuditResponse> {
@@ -83,14 +87,14 @@ export async function POST(request: Request) {
     const input = await parseBody(request, postSchema)
 
     if (input.action === 'RUN_AUDIT') {
-      const projectId = input.projectId ?? (await resolveDefaultProjectId())
+      const projectId = await resolveBodyProject(input.projectId)
       invalidateWorkspaceAudit()
       const payload = await buildAuditResponse(projectId, true)
       return ok({ ...payload, forced: true })
     }
 
     if (input.action === 'BUILD_DAG_PLAN') {
-      const projectId = input.projectId ?? (await resolveDefaultProjectId())
+      const projectId = await resolveBodyProject(input.projectId)
       const plan = await engine.buildExecutionPlan({
         projectId,
         goal: input.goal,

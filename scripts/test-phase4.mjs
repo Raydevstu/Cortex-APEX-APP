@@ -24,7 +24,10 @@
  *     → re-dispatch settles the plan → archive
  *   - Handoff XML contract (structure + escaping)
  *   - Validation envelopes (422/404)
- *   - MCP server regression (8 tools)
+ *   - MCP server regression + functional CLI wiring (10 tools — the Phase 4
+ *     cortex_state / cortex_cto tools are exercised through real
+ *     tools/call round-trips: state read, scope toggle + reset, CTO audit,
+ *     DAG build → dispatch → archive)
  *   - Cascade cleanup
  *
  * Usage:  node scripts/test-phase4.mjs [baseUrl]
@@ -99,7 +102,7 @@ class McpClient {
     const child = spawn('node', ['mcp-server/index.mjs'], {
       cwd: process.cwd(),
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, CORTEX_BASE_URL: BASE },
+      env: { ...process.env, CORTEX_DAEMON_URL: BASE },
     })
     return new McpClient(child)
   }
@@ -134,7 +137,7 @@ class McpClient {
           this.pending.delete(id)
           reject(new Error(`MCP request timed out: ${method}`))
         }
-      }, 15_000)
+      }, 30_000)
     })
   }
   async callTool(name, args) {
@@ -546,13 +549,128 @@ await check('phase-4 endpoints reject invalid payloads (422) and unknown ids (40
   assertEqual(unknownProject.status, 404, 'unknown project status')
 })
 
-section('10 · MCP server regression')
-await check('MCP server still lists all 8 tools (Phase 4 adds none, breaks none)', async () => {
+section('10 · MCP server — CLI wiring of cortex_state / cortex_cto')
+await check('server lists all 10 tools incl. the Phase 4 cortex_state / cortex_cto', async () => {
   const mcp = McpClient.spawn()
   try {
     const tools = await mcp.request('tools/list')
     const names = tools.tools.map((t) => t.name)
-    assertEqual(names.length, 8, `tool count (got: ${names.join(', ')})`)
+    assertEqual(names.length, 10, `tool count (got: ${names.join(', ')})`)
+    for (const expected of ['cortex_state', 'cortex_cto']) {
+      assert(names.includes(expected), `tool ${expected} missing`)
+    }
+  } finally {
+    await mcp.kill()
+  }
+})
+let fixtureSlug = null
+await check('fixture slug resolves for MCP addressing', async () => {
+  const { status, json } = await api('GET', '/projects')
+  assertEqual(status, 200, 'status')
+  const hit = json.projects.find((p) => p.id === projectId)
+  assert(hit, 'fixture project not in list')
+  fixtureSlug = hit.slug
+})
+await check('cortex_state GET renders the live Command Center state over stdio', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const result = await mcp.callTool('cortex_state', { slug: fixtureSlug })
+    const text = result.content.map((c) => c.text).join('\n')
+    assert(result.content[0].type === 'text', 'content type')
+    assert(text.includes('CORTEX STATE —'), 'state header missing')
+    assert(text.includes('Graph: ') && text.includes('nodes / '), 'graph summary missing')
+    assert(text.includes('Telemetry: ') && text.includes('prompts intercepted'), 'telemetry summary missing')
+    assert(text.includes('CTO RECOMMENDATIONS ('), 'recommendations block missing')
+    assert(text.includes('RECENT TIMELINE'), 'timeline block missing')
+    assert(!text.includes('<cortex_sync_packet>'), 'XML must stay hidden without includeXml')
+  } finally {
+    await mcp.kill()
+  }
+})
+await check('cortex_state includeXml returns the injectable sync packet XML', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const result = await mcp.callTool('cortex_state', { slug: fixtureSlug, includeXml: true })
+    const text = result.content.map((c) => c.text).join('\n')
+    assert(text.includes('<cortex_sync_packet'), 'sync packet XML missing')
+    assert(text.includes('<dna_snapshot'), 'dna snapshot element missing')
+  } finally {
+    await mcp.kill()
+  }
+})
+await check('cortex_state TOGGLE_SYMBOL_SCOPE → RESET_SCOPE_LOCK round-trip mutates the daemon', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const state = await api('GET', `/state?project=${projectId}`)
+    const symbol = state.json.graph.nodes.find((n) => n.label === 'ASTSymbol' && n.fqn)
+    assert(symbol, 'no ASTSymbol with fqn in the fixture graph')
+    const toggled = await mcp.callTool('cortex_state', {
+      slug: fixtureSlug,
+      action: 'TOGGLE_SYMBOL_SCOPE',
+      fqn: symbol.fqn,
+    })
+    const toggledText = toggled.content.map((c) => c.text).join('\n')
+    assert(toggledText.includes(`Toggled "${symbol.fqn}"`), 'toggle confirmation missing')
+    const after = await api('GET', `/state?project=${projectId}`)
+    const scopeChanged = after.json.scopeLock.allowedSymbolFqns.includes(symbol.fqn)
+      || after.json.scopeLock.lockedSymbolFqns.includes(symbol.fqn)
+    assert(scopeChanged, 'toggle did not reach the persisted scope lock')
+    const reset = await mcp.callTool('cortex_state', { slug: fixtureSlug, action: 'RESET_SCOPE_LOCK' })
+    const resetText = reset.content.map((c) => c.text).join('\n')
+    assert(resetText.includes('Scope lock cleared and deterministically reseeded'), 'reset confirmation missing')
+  } finally {
+    await mcp.kill()
+  }
+})
+await check('cortex_state unknown slug surfaces the daemon error over MCP', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const result = await mcp.callTool('cortex_state', { slug: 'no-such-project' })
+    assert(result.isError === true, 'expected an MCP error result')
+    assert(result.content[0].text.includes('No CortexOS project with slug'), 'error text must name the unknown slug')
+  } finally {
+    await mcp.kill()
+  }
+})
+await check('cortex_cto AUDIT renders live recommendations + plan history over stdio', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const result = await mcp.callTool('cortex_cto', { slug: fixtureSlug, action: 'AUDIT', force: true })
+    const text = result.content.map((c) => c.text).join('\n')
+    assert(text.includes('AI CTO AUDIT —'), 'audit header missing')
+    assert(text.includes('symbols / ') && text.includes('files'), 'workspace stats missing')
+    assert(text.includes('RECOMMENDATIONS ('), 'recommendations block missing')
+    assert(text.includes('DAG PLANS ('), 'plan history block missing')
+    assert(text.includes('fresh scan'), 'force=true must bypass the cache')
+  } finally {
+    await mcp.kill()
+  }
+})
+await check('cortex_cto BUILD_DAG_PLAN → DISPATCH_PLAN → ARCHIVE_PLAN full lifecycle over stdio', async () => {
+  const mcp = McpClient.spawn()
+  try {
+    const build = await mcp.callTool('cortex_cto', {
+      slug: fixtureSlug,
+      action: 'BUILD_DAG_PLAN',
+      goal: `ship the export endpoint for run ${RUN}`,
+    })
+    const buildText = build.content.map((c) => c.text).join('\n')
+    assert(buildText.includes('Plan built and persisted'), 'build confirmation missing')
+    const planId = /planId ([a-zA-Z0-9-]+)/.exec(buildText)?.[1]
+    assert(planId, 'planId not advertised in the build output')
+    assert(buildText.includes('Wave 1 (parallel):'), 'wave render missing')
+
+    const dispatch = await mcp.callTool('cortex_cto', { slug: fixtureSlug, action: 'DISPATCH_PLAN', planId })
+    const dispatchText = dispatch.content.map((c) => c.text).join('\n')
+    assert(dispatchText.includes('Status: dispatched') || dispatchText.includes('Status: completed'), 'dispatch status missing')
+    assert(
+      dispatchText.includes('✓ ') || dispatchText.includes('Executed locally (0 cloud tokens)'),
+      'wave-1 local subtask must really execute through the Phase 3 tool runner',
+    )
+
+    const archive = await mcp.callTool('cortex_cto', { slug: fixtureSlug, action: 'ARCHIVE_PLAN', planId })
+    const archiveText = archive.content.map((c) => c.text).join('\n')
+    assert(archiveText.includes('archived — it no longer appears in the active plan list'), 'archive confirmation missing')
   } finally {
     await mcp.kill()
   }

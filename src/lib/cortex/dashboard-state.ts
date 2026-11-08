@@ -121,6 +121,17 @@ export async function resolveDefaultProjectId(): Promise<string> {
   return project.id
 }
 
+/** Resolve a project reference — canonical id OR slug — to its canonical id.
+ *  Keeps the `?project=` contract uniform across /state and /cto (and their
+ *  MCP mirrors cortex_state / cortex_cto, which address projects by slug). */
+export async function resolveProjectIdRef(ref: string): Promise<string> {
+  const hit =
+    (await db.project.findUnique({ where: { id: ref }, select: { id: true } })) ??
+    (await db.project.findUnique({ where: { slug: ref }, select: { id: true } }))
+  if (!hit) throw new ApiError('Project not found', 404)
+  return hit.id
+}
+
 // ---------------------------------------------------------------------------
 // Graph DTO assembly
 // ---------------------------------------------------------------------------
