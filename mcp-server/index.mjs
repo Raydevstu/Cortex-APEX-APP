@@ -215,7 +215,7 @@ function formatDispatch(plan) {
 
 const server = new McpServer({
   name: 'cortexos',
-  version: '0.4.0',
+  version: '0.5.0',
 })
 
 const PLATFORMS = z.enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama'])

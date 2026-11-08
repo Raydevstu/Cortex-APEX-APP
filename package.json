@@ -16,10 +16,12 @@
     "test:p1": "node scripts/test-phase1.mjs",
     "test:p2": "node scripts/test-phase2.mjs",
     "test:p3": "node scripts/test-phase3.mjs",
-    "test:p4": "node scripts/test-phase4.mjs"
+    "test:p4": "node scripts/test-phase4.mjs",
+    "test:p5": "node scripts/test-phase5.mjs"
   },
   "bin": {
-    "cortex-mcp": "mcp-server/index.mjs"
+    "cortex-mcp": "mcp-server/index.mjs",
+    "cortexos": "bin/cortexos.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

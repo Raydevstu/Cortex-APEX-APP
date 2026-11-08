@@ -49,6 +49,14 @@ export const AI_PLATFORMS: readonly AIPlatform[] = [
   'codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama',
 ] as const
 
+/** Phase 5 — memory-extraction SOURCES additionally include the git hook
+ *  loop: commits synthesize turns just like an AI chat platform does. */
+export type ExtractSourcePlatform = AIPlatform | 'git-hook'
+
+export const EXTRACT_SOURCE_PLATFORMS: readonly ExtractSourcePlatform[] = [
+  ...AI_PLATFORMS, 'git-hook',
+] as const
+
 export type GraphNodeKind =
   | 'root'
   | 'module'
@@ -698,7 +706,7 @@ export interface MemoryDeltaPreference {
 
 export interface ExtractedMemoryDelta {
   turnId: string
-  sourcePlatform: AIPlatform
+  sourcePlatform: ExtractSourcePlatform
   timestamp: number
   compactTurnSummary: string
   newDecisions: MemoryDeltaDecision[]

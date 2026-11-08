@@ -240,12 +240,16 @@ let projectId = null
 let planId = null
 
 section('1 · Daemon health — v0.4.0 Phase 4 capabilities')
-await check('health reports v0.4.0 with the phase-4 capability set and dagPlans counter', async () => {
+await check('health reports a Phase 4+ version with the phase-4 capability set and dagPlans counter', async () => {
   const { status, json } = await api('GET', '/health')
   assertEqual(status, 200, 'status')
   assertEqual(json.status, 'online', 'daemon status')
-  assertEqual(json.version, '0.4.0', 'version')
-  assert(json.phase.includes('Phase 4'), `phase string must mention Phase 4 (got: ${json.phase})`)
+  const versionMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(json.version ?? '')
+  assert(versionMatch, `version must be semver (got: ${json.version})`)
+  const [major, minor] = versionMatch.slice(1).map(Number)
+  assert(major > 0 || minor >= 4, `version must be >= 0.4.0 (got ${json.version})`)
+  const phaseNumber = Number(/^Phase (\d+)/.exec(json.phase ?? '')?.[1] ?? 0)
+  assert(phaseNumber >= 4, `phase must be Phase 4 or later (got: ${json.phase})`)
   for (const capability of [
     'phase4-visual-command-center', 'phase4-ai-cto-mode', 'phase4-dag-orchestrator', 'phase4-ast-scope-locks',
   ]) {

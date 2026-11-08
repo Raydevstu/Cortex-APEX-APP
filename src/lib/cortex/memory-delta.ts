@@ -21,7 +21,7 @@ import { getOllamaStatus, ollamaChatStructured } from './ollama'
 import { getSettings } from './settings'
 import { loadPrompt, loadJsonSchema } from './assets'
 import type {
-  AIPlatform,
+  ExtractSourcePlatform,
   ExtractedMemoryDelta,
   FileAstDiff,
   MemoryDeltaApplyReport,
@@ -33,7 +33,7 @@ import type {
 
 const memoryDeltaZod = z.object({
   turnId: z.string().min(1),
-  sourcePlatform: z.enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama']),
+  sourcePlatform: z.enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama', 'git-hook']),
   timestamp: z.number().int(),
   compactTurnSummary: z.string().min(3).max(600),
   newDecisions: z.array(
@@ -84,11 +84,14 @@ const memoryDeltaZod = z.object({
 
 export async function extractAndApplyMemoryDelta(input: {
   projectId: string
-  sourcePlatform: AIPlatform
+  sourcePlatform: ExtractSourcePlatform
   rawUserPrompt: string
   aiResponseText: string
   modifiedFilesAstDiff?: FileAstDiff[]
   useLlm?: boolean
+  /** Phase 5 git-hook loop: stable turn id (`git-commit-<shortSha>`) so
+   *  replayed spool entries can be deduplicated by commit SHA. */
+  sessionId?: string
 }): Promise<MemoryDeltaApplyReport> {
   const project = await db.project.findUnique({
     where: { id: input.projectId },
@@ -164,6 +167,12 @@ export async function extractAndApplyMemoryDelta(input: {
     }
   }
 
+  // Phase 5: a caller-supplied sessionId pins the turnId (git hook uses
+  // `git-commit-<shortSha>` for SHA-stable dedupe on spool replay).
+  if (input.sessionId) {
+    delta = { ...delta, turnId: input.sessionId }
+  }
+
   const applied = await applyMemoryDelta(project.id, delta, {
     rawUserPrompt,
     aiResponseText,
@@ -211,7 +220,7 @@ const MODULE_HINTS = [
 ]
 
 function deterministicDelta(args: {
-  sourcePlatform: AIPlatform
+  sourcePlatform: ExtractSourcePlatform
   rawUserPrompt: string
   aiResponseText: string
   modifiedFilesAstDiff: FileAstDiff[]
@@ -242,14 +251,14 @@ function deterministicDelta(args: {
   for (const memory of extractMemories(combined)) {
     if (memory.type !== 'decision' && memory.type !== 'architecture') continue
     const category = categorize(`${memory.key} ${memory.value}`)
-    const module = matchModule(`${memory.key} ${memory.value}`) ?? 'General'
+    const moduleName = matchModule(`${memory.key} ${memory.value}`) ?? 'General'
     const supersedes = detectSupersede(memory.key, memory.value, args.existingActiveDecisions)
     newDecisions.push({
       category,
       title: memory.key,
       rationale: memory.value.slice(0, 300),
       constraints: CRITICAL.test(memory.value) ? 'Critical-path decision — treat as immutable.' : '',
-      targetModuleId: module,
+      targetModuleId: moduleName,
       ...(supersedes ? { supersedesDecisionId: supersedes } : {}),
     })
   }
@@ -540,10 +549,10 @@ async function applyMemoryDelta(
       severity: bug.severity,
       detail: bug.rootCause.slice(0, 200),
     })
-    const module = matchModule(`${bug.title} ${bug.rootCause}`)
-    if (module) {
-      await upsertNode(projectId, 'module', module, { source: 'memory-delta' })
-      await upsertEdgeByLabel(projectId, 'module', module, 'HAS_BUG', 'bug', bugLabel)
+    const moduleName = matchModule(`${bug.title} ${bug.rootCause}`)
+    if (moduleName) {
+      await upsertNode(projectId, 'module', moduleName, { source: 'memory-delta' })
+      await upsertEdgeByLabel(projectId, 'module', moduleName, 'HAS_BUG', 'bug', bugLabel)
     }
   }
 

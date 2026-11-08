@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { handleRouteError, ok, parseBody, ApiError } from '@/lib/cortex/api'
 import { extractAndApplyMemoryDelta } from '@/lib/cortex/memory-delta'
+import { EXTRACT_SOURCE_PLATFORMS } from '@/lib/cortex/types'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
@@ -8,8 +9,7 @@ export const maxDuration = 120
 
 const extractSchema = z.object({
   projectId: z.string().min(1),
-  sourcePlatform: z
-    .enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama']),
+  sourcePlatform: z.enum(EXTRACT_SOURCE_PLATFORMS),
   rawUserPrompt: z.string().trim().min(3).max(20_000),
   aiResponseText: z.string().trim().min(3).max(20_000),
   modifiedFilesAstDiff: z
@@ -23,6 +23,9 @@ const extractSchema = z.object({
     .max(50)
     .optional(),
   useLlm: z.boolean().optional(),
+  /** Phase 5 git-hook loop: stable session id — persisted on the Interaction
+   *  so spool replay can deduplicate by commit SHA. */
+  sessionId: z.string().trim().min(3).max(120).optional(),
 })
 
 /**
@@ -50,6 +53,7 @@ export async function POST(request: Request) {
       aiResponseText: input.aiResponseText,
       ...(input.modifiedFilesAstDiff ? { modifiedFilesAstDiff: input.modifiedFilesAstDiff } : {}),
       ...(input.useLlm !== undefined ? { useLlm: input.useLlm } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     })
 
     return ok(report, { status: 201 })

@@ -54,7 +54,9 @@ export async function GET(request: Request) {
 
 const postSchema = z.discriminatedUnion('action', [
   z.object({
-    action: z.literal('RUN_AUDIT'),
+    // Phase 5: AUDIT is the blueprint's action name for `cortexos cto audit
+    // --force`; RUN_AUDIT remains the Phase 4 verb. Identical behaviour.
+    action: z.enum(['RUN_AUDIT', 'AUDIT']),
     projectId: z.string().trim().min(1).optional(),
   }),
   z.object({
@@ -86,7 +88,7 @@ export async function POST(request: Request) {
   try {
     const input = await parseBody(request, postSchema)
 
-    if (input.action === 'RUN_AUDIT') {
+    if (input.action === 'RUN_AUDIT' || input.action === 'AUDIT') {
       const projectId = await resolveBodyProject(input.projectId)
       invalidateWorkspaceAudit()
       const payload = await buildAuditResponse(projectId, true)

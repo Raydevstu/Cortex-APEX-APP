@@ -28,8 +28,8 @@ export async function GET() {
 
     const health: DaemonHealth = {
       status: 'online',
-      version: '0.4.0',
-      phase: 'Phase 4 — Visual Command Center & AI CTO Mode',
+      version: '0.5.0',
+      phase: 'Phase 5 — Unified CLI & Git Memory Loop',
       capabilities: [
         'phase1-brain-prompt-interceptor',
         'phase2-cross-platform-sync',
@@ -38,6 +38,8 @@ export async function GET() {
         'phase4-ai-cto-mode',
         'phase4-dag-orchestrator',
         'phase4-ast-scope-locks',
+        'phase5-unified-cli',
+        'phase5-git-memory-loop',
       ],
       database: 'ok',
       ollama,
