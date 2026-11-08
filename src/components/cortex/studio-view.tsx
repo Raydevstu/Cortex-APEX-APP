@@ -149,7 +149,7 @@ export function StudioView({ initialProjectId, navigate }: { initialProjectId?: 
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       {/* ------------------------- Left: input ------------------------- */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         <div className="rounded-xl border border-border/60 bg-card/60 p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1">
@@ -336,7 +336,7 @@ export function StudioView({ initialProjectId, navigate }: { initialProjectId?: 
       </div>
 
       {/* ------------------------- Right: output ------------------------- */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {runMutation.isPending && !result ? (
           <div className="space-y-4">
             <Skeleton className="h-20 rounded-xl" />
