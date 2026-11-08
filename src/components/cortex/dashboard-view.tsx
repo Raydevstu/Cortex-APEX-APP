@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import {
   FolderKanban, Brain, GitBranch, Coins, Sparkles, ScrollText, AlertTriangle,
   ListTodo, Bug, Plus, FlaskConical, ArrowRight, Activity, ArrowRightLeft, History,
-  GitCommitHorizontal, Radar,
+  GitCommitHorizontal, Radar, Bot, Package, Timer, Wrench,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -33,6 +33,12 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   'file.added': <Radar className="size-3.5" />,
   'file.removed': <Radar className="size-3.5" />,
   'watcher.started': <Radar className="size-3.5" />,
+  'preexec.run': <Bot className="size-3.5" />,
+  'preexec.local_only': <Bot className="size-3.5" />,
+  'staging.applied': <Package className="size-3.5" />,
+  'staging.discarded': <Package className="size-3.5" />,
+  'staging.reverted': <Package className="size-3.5" />,
+  'memory.delta_applied': <Wrench className="size-3.5" />,
 }
 
 export function DashboardView({ navigate }: { navigate: (view: View) => void }) {
@@ -74,7 +80,7 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
     )
   }
 
-  const { totals, tokenSavings, daily, recentEvents, openItems, sync } = metrics
+  const { totals, tokenSavings, daily, recentEvents, openItems, sync, preExec } = metrics
   const hasData = totals.projects > 0
 
   const chartData = daily.map((d) => ({
@@ -89,14 +95,14 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
         <div className="absolute -right-16 -top-16 size-56 rounded-full bg-primary/10 blur-3xl" aria-hidden />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-2xl">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary">CortexOS · Phase 2</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-primary">CortexOS · Phase 3</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
               The persistent brain for AI-assisted development
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Memory engine, Knowledge Graph and Project DNA online — now with cross-platform sync:
-              file watchers, git hooks, an MCP server and episodic vector memory keep every platform
-              (Codex, Hermes, OpenCode, Claude…) on the same page, for ~150–300 tokens per handoff.
+              Memory engine, Knowledge Graph, Project DNA and cross-platform sync online — now with the
+              Pre-Execution Local Agent: tasks are triaged locally, deterministic tools inspect your real
+              workspace and stage boilerplate, and only the core architectural delta reaches Codex / Hermes.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -167,6 +173,38 @@ export function DashboardView({ navigate }: { navigate: (view: View) => void }) 
           sub="workspace → Knowledge Graph"
           icon={<Radar className="size-4.5" />}
           accent="emerald"
+        />
+      </div>
+
+      {/* ---- Phase 3: Pre-execution agent strip ---- */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Pre-exec agent runs"
+          value={formatNumber(preExec?.runs ?? 0)}
+          sub={`${preExec?.localOnlyRuns ?? 0} solved 100% locally${preExec?.lastRunAt ? ` · last ${timeAgo(preExec.lastRunAt)}` : ''}`}
+          icon={<Bot className="size-4.5" />}
+          accent="sky"
+        />
+        <StatCard
+          label="Cloud tokens saved"
+          value={formatNumber(preExec?.cloudTokensSaved ?? 0)}
+          sub="work the local agent pre-completed"
+          icon={<Coins className="size-4.5" />}
+          accent="emerald"
+        />
+        <StatCard
+          label="Files staged"
+          value={formatNumber(preExec?.filesStaged ?? 0)}
+          sub="scope-guard-validated scaffolds"
+          icon={<Package className="size-4.5" />}
+          accent="violet"
+        />
+        <StatCard
+          label="Agent latency"
+          value={`${preExec?.avgDurationMs ?? 0}ms`}
+          sub="average full pipeline (triage → tools → spec)"
+          icon={<Timer className="size-4.5" />}
+          accent="amber"
         />
       </div>
 

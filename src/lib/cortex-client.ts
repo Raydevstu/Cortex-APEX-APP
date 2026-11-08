@@ -11,9 +11,14 @@ import type {
   EngineKind,
   EpisodicSearchResponse,
   GitCommitRecord,
+  MemoryDeltaApplyReport,
   OllamaStatus,
+  PreExecResult,
+  PreExecRunSummary,
   ProjectSummary,
   RewriteResult,
+  StagedArtifactDetailClient,
+  StagedArtifactSummary,
   StatePacket,
   SyncHandoffRecord,
   WatcherStatus,
@@ -170,6 +175,43 @@ export const cortexApi = {
     api<RewriteResult>('/rewrite', { method: 'POST', body: JSON.stringify({ projectId, prompt, engine }) }),
   rewriteHistory: (projectId: string) =>
     api<{ sessions: PromptSessionRecord[] }>(`/rewrite?projectId=${projectId}`),
+  // ---- Phase 3: Pre-Execution Local Agent --------------------------------
+  preExecute: (input: {
+    projectId: string
+    prompt: string
+    targetPlatform?: string
+    module?: string
+    useLlm?: boolean
+  }) =>
+    api<PreExecResult>('/preexecute', { method: 'POST', body: JSON.stringify(input) }),
+  preExecHistory: (projectId: string) =>
+    api<{ runs: PreExecRunSummary[] }>(`/preexecute?projectId=${projectId}`),
+  stagedArtifacts: (projectId: string, status?: string) =>
+    api<{ artifacts: StagedArtifactDetailClient[] }>(
+      `/preexecute/staged?projectId=${projectId}${status ? `&status=${status}` : ''}`,
+    ),
+  stagedAction: (id: string, action: 'apply' | 'discard' | 'revert') =>
+    api<{ action: string; artifact: StagedArtifactSummary; writtenPath?: string; merged?: boolean; restored?: string }>(
+      `/preexecute/staged/${encodeURIComponent(id)}`,
+      { method: 'POST', body: JSON.stringify({ action }) },
+    ),
+  extractMemory: (input: {
+    projectId: string
+    sourcePlatform: string
+    rawUserPrompt: string
+    aiResponseText: string
+    modifiedFilesAstDiff?: Array<{ path: string; addedSymbols: string[]; modifiedSymbols: string[] }>
+  }) =>
+    api<MemoryDeltaApplyReport>('/extract', { method: 'POST', body: JSON.stringify(input) }),
+  assets: () =>
+    api<{
+      assets: {
+        root: string
+        prompts: Array<{ name: string; bytes: number }>
+        schemas: Array<{ name: string; bytes: number; required: string[] }>
+        docs: Array<{ name: string; bytes: number }>
+      }
+    }>('/assets'),
   statePacket: (slug: string) => api<StatePacket>(`/sync/${slug}`),
   syncHandoff: (slug: string, targetPlatform: string, module?: string) =>
     api<{ handoffId: string; packet: CrossPlatformSyncPacket }>(`/sync/${slug}`, {

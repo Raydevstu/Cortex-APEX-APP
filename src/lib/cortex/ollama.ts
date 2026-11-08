@@ -111,3 +111,73 @@ export async function ollamaChat(
     clearTimeout(timer)
   }
 }
+
+export interface OllamaStructuredRequest<T> {
+  model: string
+  systemPrompt: string
+  /** JSON-stringified into the user message (blueprint payload contract). */
+  userPayload: Record<string, unknown>
+  /** Ollama Structured Outputs grammar — passed verbatim as `format`. */
+  jsonSchema: Record<string, unknown>
+  temperature?: number
+}
+
+/**
+ * Deterministic, zero-markdown-hallucination call to local Ollama using
+ * Ollama's native `format` JSON-schema constraint (blueprint Part 2,
+ * `callLocalOllamaStructured`). Low temperature + strict grammar so local
+ * models (qwen2.5:1.5b … llama3.2:3b) never emit markdown wrappers or
+ * invalid JSON. The caller validates the parsed result with zod and falls
+ * back to the deterministic Fast-Path engine when anything is off.
+ */
+export async function ollamaChatStructured<T>(
+  baseUrl: string,
+  req: OllamaStructuredRequest<T>,
+  opts: { timeoutMs?: number } = {},
+): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 120_000
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: req.model,
+        stream: false,
+        format: req.jsonSchema,
+        options: {
+          temperature: req.temperature ?? 0.1, // Low temp for deterministic routing & code specs
+          num_ctx: 8192,
+        },
+        messages: [
+          { role: 'system', content: req.systemPrompt },
+          { role: 'user', content: JSON.stringify(req.userPayload) },
+        ],
+      }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(`Ollama structured call failed (${response.status}): ${detail.slice(0, 200)}`)
+    }
+
+    const data = (await response.json()) as { message?: { content?: string } }
+    const content = data.message?.content?.trim()
+    if (!content) {
+      throw new Error('Ollama returned an empty structured completion')
+    }
+
+    // Some models still wrap the JSON in fences even with format constraints.
+    const unwrapped = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
+    try {
+      return JSON.parse(unwrapped) as T
+    } catch {
+      throw new Error(`Ollama structured output is not valid JSON: ${unwrapped.slice(0, 160)}`)
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}

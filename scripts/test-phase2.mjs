@@ -99,13 +99,16 @@ async function main() {
   let projectId = ''
   let fixtureDir = ''
 
-  // ---- 1. Daemon health (v0.2.0 + Phase 2 counts) -------------------------
+  // ---- 1. Daemon health (>= v0.2.0 + Phase 2 capability + counts) ----------
   section('1 · Daemon health — Phase 2')
-  await check('GET /health reports v0.2.0 Phase 2 with sync counts', async () => {
+  await check('GET /health reports a valid version with the Phase 2 capability and sync counts', async () => {
     const { status, json } = await api('GET', '/health')
     assertEqual(status, 200, 'status')
-    assertEqual(json.version, '0.2.0', 'version')
-    assert(json.phase.includes('Cross-Platform Sync'), 'phase label missing Phase 2')
+    assert(/^0\.[2-9]\d*\.\d+$/.test(json.version), `version >= 0.2.0 (got ${json.version})`)
+    assert(
+      Array.isArray(json.capabilities) && json.capabilities.includes('phase2-cross-platform-sync'),
+      'phase2-cross-platform-sync capability missing',
+    )
     for (const key of ['handoffs', 'commits', 'episodes']) {
       assert(typeof json.counts[key] === 'number', `counts.${key} missing`)
     }

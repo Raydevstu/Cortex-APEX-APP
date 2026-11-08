@@ -1,0 +1,73 @@
+{
+  "name": "RouterDecision",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "intentCategory",
+    "complexityScore",
+    "executionMode",
+    "relevantModuleIds",
+    "localPreExecutionPlan",
+    "cloudCoreTaskSpec",
+    "estimatedCloudTokensSaved"
+  ],
+  "properties": {
+    "intentCategory": {
+      "type": "string",
+      "enum": ["feature_build", "bug_fix", "refactor", "schema_change", "architecture", "test_gen", "docs"]
+    },
+    "complexityScore": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "1-3: Local Only, 4-7: Hybrid Pre-Execute, 8-10: Heavy Cloud Core with Local Context Prep"
+    },
+    "executionMode": {
+      "type": "string",
+      "enum": ["LOCAL_ONLY", "HYBRID_PRE_EXECUTE", "CLOUD_DIRECT_WITH_DNA"]
+    },
+    "relevantModuleIds": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "localPreExecutionPlan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stepId", "toolName", "toolArgs", "expectedArtifact"],
+        "properties": {
+          "stepId": { "type": "string" },
+          "toolName": {
+            "type": "string",
+            "enum": ["ast_symbol_lookup", "schema_inspect", "local_docs_search", "scaffold_boilerplate", "git_diff_summary"]
+          },
+          "toolArgs": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "expectedArtifact": { "type": "string" }
+        }
+      }
+    },
+    "cloudCoreTaskSpec": {
+      "type": "object",
+      "required": ["coreObjective", "targetFiles", "readOnlyReferenceFiles", "scopeGuardConstraints"],
+      "properties": {
+        "coreObjective": { "type": "string" },
+        "targetFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "readOnlyReferenceFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "scopeGuardConstraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "estimatedCloudTokensSaved": { "type": "integer" }
+  }
+}

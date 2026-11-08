@@ -14,6 +14,8 @@ When your IDE agent boots a session it pulls live project state via `cortex_sync
 | `cortex_rewrite` | Tier-1 prompt rewrite via the daemon (fast / deep / cloud engines) with token-savings metrics. |
 | `cortex_search_history` | Semantic episodic search over past interactions (vector store + memory blend). |
 | `cortex_capture_interaction` | Feed a raw chat transcript to the memory engine: extraction, dedupe, graph linking, episodic indexing. |
+| `cortex_preexecute` | **Phase 3** — run the Pre-Execution Local Agent: Engine 1 triage (LOCAL_ONLY / HYBRID_PRE_EXECUTE / CLOUD_DIRECT_WITH_DNA), deterministic local tools against the real workspace (git state, Prisma schema, AST signatures, cached SDK docs), staged scaffolds, and the blueprint-format Tier-1 payload to inject into the main model. |
+| `cortex_extract_memory` | **Phase 3 — Engine 3**: feed a finished turn (prompt + response + modified files) back into the brain. Decisions with supersede detection, task transitions, bug discovery/resolution, preferences — applied to the memory engine, Knowledge Graph (`GOVERNED_BY` / `SUPERSEDES` / `HAS_BUG` edges) and episodic store. |
 
 ## Requirements
 

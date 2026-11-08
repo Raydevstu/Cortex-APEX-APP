@@ -1,6 +1,8 @@
 /**
  * Daemon settings service — persisted key/value store for the local
- * Cortex daemon configuration (Ollama endpoint, default engine).
+ * Cortex daemon configuration (Ollama endpoints, engine defaults and the
+ * Phase 3 local-agent model roles from the blueprint's
+ * `agentRoutingPolicy.localOllamaModels`).
  */
 import { db } from '@/lib/db'
 import type { DaemonSettings } from './types'
@@ -12,6 +14,14 @@ export const DEFAULT_SETTINGS: DaemonSettings = {
   ollamaModel: 'qwen2.5-coder:7b',
   ollamaEmbeddingModel: 'nomic-embed-text',
   defaultEngine: 'fast',
+  // Phase 3 — blueprint agentRoutingPolicy.localOllamaModels roles:
+  ollamaRouterModel: 'qwen2.5:1.5b', // Engine 1 fastRouter
+  ollamaExtractorModel: 'llama3.2:3b', // Engine 3 memoryExtractor
+  searxngUrl: '', // optional SearXNG endpoint for local_docs_search web layer
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 export async function getSettings(): Promise<DaemonSettings> {
@@ -20,13 +30,20 @@ export async function getSettings(): Promise<DaemonSettings> {
   try {
     const parsed = JSON.parse(record.value) as Partial<DaemonSettings>
     return {
-      ollamaBaseUrl: typeof parsed.ollamaBaseUrl === 'string' && parsed.ollamaBaseUrl ? parsed.ollamaBaseUrl : DEFAULT_SETTINGS.ollamaBaseUrl,
-      ollamaModel: typeof parsed.ollamaModel === 'string' && parsed.ollamaModel ? parsed.ollamaModel : DEFAULT_SETTINGS.ollamaModel,
-      ollamaEmbeddingModel:
-        typeof parsed.ollamaEmbeddingModel === 'string' && parsed.ollamaEmbeddingModel
-          ? parsed.ollamaEmbeddingModel
-          : DEFAULT_SETTINGS.ollamaEmbeddingModel,
-      defaultEngine: parsed.defaultEngine === 'deep' || parsed.defaultEngine === 'cloud' ? parsed.defaultEngine : 'fast',
+      ollamaBaseUrl: isNonEmptyString(parsed.ollamaBaseUrl) ? parsed.ollamaBaseUrl : DEFAULT_SETTINGS.ollamaBaseUrl,
+      ollamaModel: isNonEmptyString(parsed.ollamaModel) ? parsed.ollamaModel : DEFAULT_SETTINGS.ollamaModel,
+      ollamaEmbeddingModel: isNonEmptyString(parsed.ollamaEmbeddingModel)
+        ? parsed.ollamaEmbeddingModel
+        : DEFAULT_SETTINGS.ollamaEmbeddingModel,
+      defaultEngine:
+        parsed.defaultEngine === 'deep' || parsed.defaultEngine === 'cloud' ? parsed.defaultEngine : 'fast',
+      ollamaRouterModel: isNonEmptyString(parsed.ollamaRouterModel)
+        ? parsed.ollamaRouterModel
+        : DEFAULT_SETTINGS.ollamaRouterModel,
+      ollamaExtractorModel: isNonEmptyString(parsed.ollamaExtractorModel)
+        ? parsed.ollamaExtractorModel
+        : DEFAULT_SETTINGS.ollamaExtractorModel,
+      searxngUrl: typeof parsed.searxngUrl === 'string' ? parsed.searxngUrl.trim().replace(/\/$/, '') : '',
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -36,22 +53,27 @@ export async function getSettings(): Promise<DaemonSettings> {
 export async function saveSettings(patch: Partial<DaemonSettings>): Promise<DaemonSettings> {
   const current = await getSettings()
   const next: DaemonSettings = {
-    ollamaBaseUrl:
-      typeof patch.ollamaBaseUrl === 'string' && patch.ollamaBaseUrl.trim().length > 0
-        ? patch.ollamaBaseUrl.trim().replace(/\/$/, '')
-        : current.ollamaBaseUrl,
-    ollamaModel:
-      typeof patch.ollamaModel === 'string' && patch.ollamaModel.trim().length > 0
-        ? patch.ollamaModel.trim()
-        : current.ollamaModel,
-    ollamaEmbeddingModel:
-      typeof patch.ollamaEmbeddingModel === 'string' && patch.ollamaEmbeddingModel.trim().length > 0
-        ? patch.ollamaEmbeddingModel.trim()
-        : current.ollamaEmbeddingModel,
+    ollamaBaseUrl: isNonEmptyString(patch.ollamaBaseUrl)
+      ? patch.ollamaBaseUrl.trim().replace(/\/$/, '')
+      : current.ollamaBaseUrl,
+    ollamaModel: isNonEmptyString(patch.ollamaModel) ? patch.ollamaModel.trim() : current.ollamaModel,
+    ollamaEmbeddingModel: isNonEmptyString(patch.ollamaEmbeddingModel)
+      ? patch.ollamaEmbeddingModel.trim()
+      : current.ollamaEmbeddingModel,
     defaultEngine:
       patch.defaultEngine === 'fast' || patch.defaultEngine === 'deep' || patch.defaultEngine === 'cloud'
         ? patch.defaultEngine
         : current.defaultEngine,
+    ollamaRouterModel: isNonEmptyString(patch.ollamaRouterModel)
+      ? patch.ollamaRouterModel.trim()
+      : current.ollamaRouterModel,
+    ollamaExtractorModel: isNonEmptyString(patch.ollamaExtractorModel)
+      ? patch.ollamaExtractorModel.trim()
+      : current.ollamaExtractorModel,
+    searxngUrl:
+      typeof patch.searxngUrl === 'string'
+        ? patch.searxngUrl.trim().replace(/\/$/, '')
+        : current.searxngUrl,
   }
 
   await db.setting.upsert({

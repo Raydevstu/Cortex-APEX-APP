@@ -1,0 +1,60 @@
+{
+  "name": "Tier1RewrittenPrompt",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "taskTitle",
+    "targetPlatformOptimized",
+    "decomposedSubtasks",
+    "scopeLock",
+    "finalInjectedMarkdownPrompt"
+  ],
+  "properties": {
+    "taskTitle": { "type": "string" },
+    "targetPlatformOptimized": {
+      "type": "string",
+      "enum": ["codex", "hermes", "opencode", "cursor", "claude", "generic"]
+    },
+    "decomposedSubtasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stepNumber", "layer", "action", "handledBy"],
+        "properties": {
+          "stepNumber": { "type": "integer", "minimum": 1 },
+          "layer": {
+            "type": "string",
+            "enum": ["database", "backend", "frontend", "auth", "testing"]
+          },
+          "action": { "type": "string" },
+          "handledBy": {
+            "type": "string",
+            "enum": ["COMPLETED_BY_LOCAL_OLLAMA", "ASSIGNED_TO_MAIN_AI"]
+          }
+        }
+      }
+    },
+    "scopeLock": {
+      "type": "object",
+      "required": ["allowedWriteFiles", "readOnlyContextFiles", "forbiddenPatterns"],
+      "properties": {
+        "allowedWriteFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "readOnlyContextFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbiddenPatterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "finalInjectedMarkdownPrompt": {
+      "type": "string",
+      "description": "The exact structured markdown payload injected into Codex/Hermes."
+    }
+  }
+}

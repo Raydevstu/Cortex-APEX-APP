@@ -1,0 +1,116 @@
+{
+  "name": "ExtractedMemoryDelta",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "turnId",
+    "sourcePlatform",
+    "timestamp",
+    "compactTurnSummary",
+    "newDecisions",
+    "newRequirements",
+    "taskUpdates",
+    "discoveredBugs"
+  ],
+  "properties": {
+    "turnId": { "type": "string" },
+    "sourcePlatform": {
+      "type": "string",
+      "enum": ["codex", "hermes", "opencode", "cursor", "windsurf", "claude", "chatgpt", "local_ollama"]
+    },
+    "timestamp": { "type": "integer" },
+    "compactTurnSummary": {
+      "type": "string",
+      "description": "Max 60 tokens: [What was built/modified] + [Exact files/symbols touched] + [Immediate next state]."
+    },
+    "newDecisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["category", "title", "rationale", "constraints", "targetModuleId"],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["database", "auth", "state", "api", "ui", "security"]
+          },
+          "title": { "type": "string" },
+          "rationale": { "type": "string" },
+          "constraints": { "type": "string" },
+          "targetModuleId": { "type": "string" },
+          "supersedesDecisionId": { "type": "string" }
+        }
+      }
+    },
+    "newRequirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["domain", "rule", "priority"],
+        "properties": {
+          "domain": { "type": "string" },
+          "rule": { "type": "string" },
+          "priority": {
+            "type": "string",
+            "enum": ["critical", "high", "medium"]
+          }
+        }
+      }
+    },
+    "taskUpdates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "status", "targetFiles"],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Omit if creating a brand new discovered TODO."
+          },
+          "title": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["todo", "pre_executed_locally", "in_progress", "completed", "blocked"]
+          },
+          "targetFiles": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "discoveredBugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "title", "rootCause", "status"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "title": { "type": "string" },
+          "rootCause": { "type": "string" },
+          "affectedSymbolId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["open", "resolved"]
+          }
+        }
+      }
+    },
+    "userPreferenceUpdates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ruleType", "value"],
+        "properties": {
+          "ruleType": {
+            "type": "string",
+            "enum": ["immutableConstraint", "forbiddenPattern", "codingStandard"]
+          },
+          "value": { "type": "string" }
+        }
+      }
+    }
+  }
+}

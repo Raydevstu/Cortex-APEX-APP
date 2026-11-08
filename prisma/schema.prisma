@@ -1,4 +1,5 @@
-// CortexOS — Phase 1 + Phase 2: The Brain & Prompt Interceptor + Cross-Platform Sync Engine
+// CortexOS — Phase 1 + 2 + 3: The Brain & Prompt Interceptor + Cross-Platform
+// Sync Engine + Pre-Execution Local Agent & Token Optimizer
 // Storage engine: SQLite (blueprint §5 — local single-folder storage)
 // The Knowledge Graph is modelled as a property-graph triple store
 // (nodes + typed edges), functionally equivalent to the blueprint's
@@ -35,6 +36,8 @@ model Project {
   events         TimelineEvent[]
   handoffs       SyncHandoff[]
   commits        GitCommit[]
+  preExecRuns    PreExecRun[]
+  stagedArtifacts StagedArtifact[]
 }
 
 // PROJECT DNA (blueprint "AI Project DNA" + Pillar knowledge model)
@@ -190,6 +193,64 @@ model GitCommit {
 
   @@unique([projectId, hash])
   @@index([projectId, committedAt])
+}
+
+// Phase 3 — Pre-Execution Local Agent runs (blueprint v2 §6 Weeks 5–6 +
+// Part 2 pipeline): every Engine 1 router decision, executed local tool plan,
+// artifacts and the Engine 2 Tier-1 rewrite are persisted for audit and the
+// Token Savings Engine.
+model PreExecRun {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  rawPrompt       String
+  targetPlatform  String  @default("codex")
+  intentCategory  String // feature_build | bug_fix | refactor | schema_change | architecture | test_gen | docs
+  complexityScore Int     // 1..10
+  executionMode   String // LOCAL_ONLY | HYBRID_PRE_EXECUTE | CLOUD_DIRECT_WITH_DNA
+  routerEngine    String // ollama:<model> | deterministic
+  routerDecision  String // JSON: full RouterDecision (blueprint RouterDecisionSchema)
+  artifacts       String  @default("[]") // JSON: executed local tool artifacts
+  cloudCoreTaskSpec String @default("{}") // JSON: the spec routed to the main AI
+  tier1           String? // JSON: Tier1RewrittenPrompt (taskTitle, scopeLock, decomposedSubtasks)
+  injectedPrompt  String? // null when handledCompletelyLocally
+  handledLocally  Boolean @default(false)
+  tokensSavedCloud Int    @default(0) // estimated cloud tokens the local agent saved
+  tokensContextAvoided Int @default(0)
+  durationMs      Int     @default(0)
+  stagedCount     Int     @default(0)
+  createdAt       DateTime @default(now())
+
+  stagedArtifacts StagedArtifact[]
+
+  @@index([projectId, createdAt])
+}
+
+// Phase 3 — staged boilerplate produced by scaffold_boilerplate. Artifacts are
+// NEVER written to the workspace directly: they wait in `staged` state until
+// the developer applies them through the scope-guard-validated apply endpoint.
+model StagedArtifact {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runId     String
+  run       PreExecRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  toolName  String // scaffold_boilerplate | ast_symbol_lookup …
+  kind      String  @default("scaffold") // zod-schema | ts-types | route-stub | env-example
+  action    String // create | modify
+  targetPath String // workspace-relative path the artifact applies to
+  content   String // full file content
+  rationale String // why the local agent staged this
+  language  String  @default("typescript")
+  status    String  @default("staged") // staged | applied | discarded
+  previousContent String? // captured on apply when overwriting, for revert
+  appliedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, status])
+  @@index([runId])
 }
 
 // Development Timeline (Pillar 11)

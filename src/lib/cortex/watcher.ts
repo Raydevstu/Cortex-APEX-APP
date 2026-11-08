@@ -12,7 +12,7 @@
  *      file.removed) — which the sync packet's active-module inference and
  *      the Development Timeline both consume.
  */
-import chokidar from 'chokidar'
+import chokidar, { type FSWatcher } from 'chokidar'
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -43,7 +43,7 @@ const DEBOUNCE_MS = 400
 interface WatcherEntry {
   projectId: string
   rootPath: string
-  watcher: chokidar.FSWatcher
+  watcher: FSWatcher
   startedAt: Date
   events: number
   errors: number
@@ -77,7 +77,7 @@ export async function startWatcher(projectId: string): Promise<{ started: boolea
   const entry: WatcherEntry = {
     projectId,
     rootPath,
-    watcher: null as unknown as chokidar.FSWatcher,
+    watcher: null as unknown as FSWatcher,
     startedAt: new Date(),
     events: 0,
     errors: 0,
@@ -128,7 +128,9 @@ export async function watcherStatus(projectId?: string) {
     let watchedFiles = 0
     if (entry) {
       const watched = entry.watcher.getWatched()
-      for (const files of Object.values(watched)) watchedFiles += files.length
+      for (const files of Object.values(watched)) {
+        watchedFiles += Array.isArray(files) ? files.length : 0
+      }
     }
     return {
       projectId: project.id,

@@ -75,6 +75,9 @@ export const GRAPH_RELATIONS: readonly string[] = [
   'HAS_BUG',
   'PREFERS',
   'SYNCED_WITH',
+  // Phase 3 (blueprint Part 1 §2 — governance edges):
+  'GOVERNED_BY',
+  'SUPERSEDES',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -399,6 +402,12 @@ export interface DaemonSettings {
   ollamaModel: string
   ollamaEmbeddingModel: string
   defaultEngine: EngineKind
+  /** Phase 3 — Engine 1 router model (blueprint agentRoutingPolicy.fastRouter). */
+  ollamaRouterModel: string
+  /** Phase 3 — Engine 3 memory extractor model (agentRoutingPolicy.memoryExtractor). */
+  ollamaExtractorModel: string
+  /** Phase 3 — optional SearXNG endpoint for the local_docs_search web layer. */
+  searxngUrl: string
 }
 
 export interface OllamaStatus {
@@ -413,6 +422,8 @@ export interface DaemonHealth {
   status: 'online'
   version: string
   phase: string
+  /** Cumulative capability flags — one per shipped blueprint phase. */
+  capabilities: string[]
   database: 'ok' | 'error'
   ollama: OllamaStatus
   counts: {
@@ -425,6 +436,8 @@ export interface DaemonHealth {
     handoffs: number
     commits: number
     episodes: number
+    preExecRuns: number
+    stagedArtifacts: number
   }
 }
 
@@ -469,6 +482,15 @@ export interface DashboardMetrics {
     watchersRunning: number
     lastHandoffAt: string | null
   }
+  preExec: {
+    runs: number
+    localOnlyRuns: number
+    cloudTokensSaved: number
+    contextTokensAvoided: number
+    filesStaged: number
+    avgDurationMs: number
+    lastRunAt: string | null
+  }
   tokenSavings: {
     tokensRaw: number
     tokensStructured: number
@@ -495,4 +517,210 @@ export interface DashboardMetrics {
     importance: number
     createdAt: string
   }>
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Pre-Execution Local Agent & Token Optimizer (blueprint v2 §6 +
+// Part 2: RouterDecisionSchema / Tier1RewrittenPromptSchema contracts)
+// ---------------------------------------------------------------------------
+
+export type PreExecIntentCategory =
+  | 'feature_build'
+  | 'bug_fix'
+  | 'refactor'
+  | 'schema_change'
+  | 'architecture'
+  | 'test_gen'
+  | 'docs'
+
+export type PreExecExecutionMode = 'LOCAL_ONLY' | 'HYBRID_PRE_EXECUTE' | 'CLOUD_DIRECT_WITH_DNA'
+
+export type PreExecLocalToolName =
+  | 'ast_symbol_lookup'
+  | 'schema_inspect'
+  | 'local_docs_search'
+  | 'scaffold_boilerplate'
+  | 'git_diff_summary'
+
+export interface PreExecPlanStep {
+  stepId: string
+  toolName: PreExecLocalToolName
+  toolArgs: Record<string, string>
+  expectedArtifact: string
+}
+
+export interface CloudCoreTaskSpec {
+  coreObjective: string
+  targetFiles: string[]
+  readOnlyReferenceFiles: string[]
+  scopeGuardConstraints: string[]
+}
+
+export interface RouterDecision {
+  intentCategory: PreExecIntentCategory
+  complexityScore: number // 1..10
+  executionMode: PreExecExecutionMode
+  relevantModuleIds: string[]
+  localPreExecutionPlan: PreExecPlanStep[]
+  cloudCoreTaskSpec: CloudCoreTaskSpec
+  estimatedCloudTokensSaved: number
+}
+
+export interface ExecutedArtifact {
+  stepId: string
+  toolName: PreExecLocalToolName
+  ok: boolean
+  durationMs: number
+  summary: string
+  data: Record<string, unknown>
+  stagedFileCount: number
+  error?: string
+}
+
+export interface DecomposedSubtask {
+  stepNumber: number
+  layer: 'database' | 'backend' | 'frontend' | 'auth' | 'testing'
+  action: string
+  handledBy: 'COMPLETED_BY_LOCAL_OLLAMA' | 'ASSIGNED_TO_MAIN_AI'
+}
+
+export interface Tier1RewrittenPrompt {
+  taskTitle: string
+  targetPlatformOptimized: string
+  decomposedSubtasks: DecomposedSubtask[]
+  scopeLock: {
+    allowedWriteFiles: string[]
+    readOnlyContextFiles: string[]
+    forbiddenPatterns: string[]
+  }
+  finalInjectedMarkdownPrompt: string
+}
+
+export interface StagedArtifactSummary {
+  id: string
+  runId: string
+  kind: string
+  action: string
+  targetPath: string
+  rationale: string
+  language: string
+  status: 'staged' | 'applied' | 'discarded'
+  contentLength: number
+  appliedAt: string | null
+  createdAt: string
+}
+
+/** Full staged artifact as served to clients (content included). */
+export interface StagedArtifactDetailClient extends StagedArtifactSummary {
+  content: string
+  runRawPrompt: string
+}
+
+export interface PreExecRunSummary {
+  id: string
+  rawPrompt: string
+  targetPlatform: string
+  intentCategory: string
+  complexityScore: number
+  executionMode: string
+  routerEngine: string
+  handledLocally: boolean
+  tokensSavedCloud: number
+  stagedCount: number
+  durationMs: number
+  createdAt: string
+}
+
+export interface PreExecResult {
+  runId: string
+  handledCompletelyLocally: boolean
+  router: RouterDecision
+  routerEngine: string // ollama:<model> | deterministic
+  routerNote?: string
+  tier1Engine: string // ollama:<model> | deterministic
+  tier1Note?: string
+  artifacts: ExecutedArtifact[]
+  tier1: Tier1RewrittenPrompt | null
+  injectedPrompt: string | null
+  staged: StagedArtifactSummary[]
+  metrics: {
+    tokensRaw: number
+    tokensSavedCloud: number
+    tokensContextAvoided: number
+    localToolMs: number
+    durationMs: number
+    scaffoldedFiles: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Engine 3: ExtractedMemoryDelta (blueprint Part 1 §4, exact)
+// ---------------------------------------------------------------------------
+
+export interface MemoryDeltaDecision {
+  category: 'database' | 'auth' | 'state' | 'api' | 'ui' | 'security'
+  title: string
+  rationale: string
+  constraints: string
+  targetModuleId: string
+  supersedesDecisionId?: string
+}
+
+export interface MemoryDeltaRequirement {
+  domain: string
+  rule: string
+  priority: 'critical' | 'high' | 'medium'
+}
+
+export interface MemoryDeltaTaskUpdate {
+  taskId?: string
+  title: string
+  status: 'todo' | 'pre_executed_locally' | 'in_progress' | 'completed' | 'blocked'
+  targetFiles: string[]
+}
+
+export interface MemoryDeltaBug {
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  title: string
+  rootCause: string
+  affectedSymbolId?: string
+  status: 'open' | 'resolved'
+}
+
+export interface MemoryDeltaPreference {
+  ruleType: 'immutableConstraint' | 'forbiddenPattern' | 'codingStandard'
+  value: string
+}
+
+export interface ExtractedMemoryDelta {
+  turnId: string
+  sourcePlatform: AIPlatform
+  timestamp: number
+  compactTurnSummary: string
+  newDecisions: MemoryDeltaDecision[]
+  newRequirements: MemoryDeltaRequirement[]
+  taskUpdates: MemoryDeltaTaskUpdate[]
+  discoveredBugs: MemoryDeltaBug[]
+  userPreferenceUpdates?: MemoryDeltaPreference[]
+}
+
+export interface MemoryDeltaApplyReport {
+  interactionId: string | null
+  decisionsCreated: number
+  decisionsSuperseded: number
+  requirementsCreated: number
+  tasksUpdated: number
+  tasksCreated: number
+  bugsCreated: number
+  bugsResolved: number
+  preferencesCreated: number
+  engineUsed: string
+  engineNote?: string
+  delta: ExtractedMemoryDelta
+}
+
+export interface FileAstDiff {
+  path: string
+  addedSymbols: string[]
+  modifiedSymbols: string[]
 }

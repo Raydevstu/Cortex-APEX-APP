@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * CortexOS MCP Server — Phase 2 (blueprint §1, universal hook #1).
+ * CortexOS MCP Server — Phase 3 (blueprint §1, universal hook #1).
  *
  * A real Model Context Protocol server (stdio transport) that exposes the
  * Cortex daemon brain to every MCP-capable platform: Codex, OpenCode,
  * Cursor, Windsurf, Claude Desktop/Code, Hermes. When the IDE agent boots,
  * it pulls the current project state through `cortex_sync`; every decision
- * it makes flows back through `cortex_log_decision`.
+ * it makes flows back through `cortex_log_decision`; since Phase 3 it can
+ * also run the Pre-Execution Local Agent (`cortex_preexecute`) and feed
+ * finished turns back into the memory engine (`cortex_extract_memory`).
  *
  * Tools (blueprint-exact names first):
  *   cortex_sync                — full CrossPlatformSyncPacket for a platform handoff
@@ -15,6 +17,8 @@
  *   cortex_rewrite             — Tier-1 prompt rewrite (fast | deep | cloud)
  *   cortex_search_history      — semantic episodic search over past interactions
  *   cortex_capture_interaction — memory extraction from a raw chat transcript
+ *   cortex_preexecute          — Phase 3 pre-execution local agent (triage → tools → Tier-1 payload)
+ *   cortex_extract_memory      — Phase 3 Engine 3 turn analysis → ExtractedMemoryDelta
  *
  * Configuration:
  *   CORTEX_DAEMON_URL  daemon base URL (default http://localhost:3000)
@@ -82,7 +86,7 @@ async function resolveProject(slug) {
 
 const server = new McpServer({
   name: 'cortexos',
-  version: '0.2.0',
+  version: '0.3.0',
 })
 
 const PLATFORMS = z.enum(['codex', 'hermes', 'opencode', 'cursor', 'windsurf', 'claude', 'chatgpt', 'local_ollama'])
@@ -233,6 +237,108 @@ server.tool(
       content: [{
         type: 'text',
         text: `Captured interaction ${result.interactionId.slice(0, 8)}: ${(result.extracted ?? []).length} memories (${(result.extracted ?? []).filter((m) => !m.deduped).length} new), ${(result.techLinked ?? []).length} tech linked${result.episode ? `, episode indexed via ${result.episode.provider} (summary: "${result.episode.summary.slice(0, 120)}…", saved ~${result.episode.tokensSaved} tokens)` : ''}.\n${extracted.length > 0 ? `\n${extracted.join('\n')}` : ''}`,
+      }],
+    }
+  },
+)
+
+server.tool(
+  'cortex_preexecute',
+  'Run the Phase 3 Pre-Execution Local Agent on a raw prompt: Engine 1 triages it (LOCAL_ONLY | HYBRID_PRE_EXECUTE | CLOUD_DIRECT_WITH_DNA), deterministic local tools inspect the REAL workspace (git state, Prisma schema fields, AST symbol signatures, cached SDK docs) and scaffold boilerplate into a staged area (never written without your apply). Returns the router decision, the executed tool artifacts, the staged files and — unless the task was completed 100% locally — the blueprint-format Tier-1 payload to inject.',
+  {
+    slug: z.string().min(1).describe('CortexOS project slug'),
+    prompt: z.string().min(3).max(4_000).describe('The raw prompt exactly as the developer would type it'),
+    targetPlatform: PLATFORMS.optional().describe('Platform the payload is optimized for (default: the project\'s current platform)'),
+    module: z.string().max(60).optional().describe('Explicit active module to scope the graph context'),
+  },
+  async ({ slug, prompt, targetPlatform, module }) => {
+    const project = await resolveProject(slug)
+    const result = await daemonFetch('POST', '/preexecute', {
+      projectId: project.id,
+      prompt,
+      ...(targetPlatform ? { targetPlatform } : {}),
+      ...(module ? { module } : {}),
+    })
+
+    const toolLines = (result.artifacts ?? [])
+      .map((a) => `${a.ok ? '✓' : '✗'} ${a.toolName} (${a.durationMs}ms): ${a.summary}`)
+      .join('\n')
+    const stagedLines = (result.staged ?? [])
+      .map((s) => `· ${s.kind} → ${s.targetPath} [${s.status}]`)
+      .join('\n')
+
+    const header = [
+      `Pre-execution run ${String(result.runId).slice(0, 8)} — ${result.router.executionMode} (${result.router.intentCategory}, complexity ${result.router.complexityScore}/10)`,
+      `Router engine: ${result.routerEngine}${result.tier1Engine ? ` · Tier-1 engine: ${result.tier1Engine}` : ''}`,
+      `Cloud tokens saved: ~${result.metrics.tokensSavedCloud} · local tools took ${result.metrics.localToolMs}ms`,
+      '',
+      'LOCAL TOOL EXECUTION:',
+      toolLines || '(no steps)',
+      '',
+      stagedLines ? `STAGED FILES (apply via the daemon: POST /api/cortex/preexecute/staged/{id} {"action":"apply"}):\n${stagedLines}\n` : '',
+    ].join('\n')
+
+    if (result.handledCompletelyLocally || !result.injectedPrompt) {
+      return {
+        content: [{
+          type: 'text',
+          text: `${header}\nThe task was completed 100% locally — nothing to send to the main model. Apply the staged files and you are done.`,
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: `${header}\n--- INJECT THIS INTO THE MAIN MODEL ---\n\n${result.injectedPrompt}`,
+      }],
+    }
+  },
+)
+
+server.tool(
+  'cortex_extract_memory',
+  'Phase 3 Engine 3 — feed a FINISHED AI coding turn (user prompt + AI response + modified-file symbols) into the memory engine. Extracts decisions (with supersede detection when the course changed), requirements, task transitions (completed only when the diff proves it), discovered/resolved bugs and preferences, then applies them to the memory engine, the Knowledge Graph (GOVERNED_BY / SUPERSEDES / HAS_BUG edges) and the episodic store. Call this after every completed turn.',
+  {
+    slug: z.string().min(1).describe('CortexOS project slug'),
+    sourcePlatform: PLATFORMS.describe('Platform the turn happened on (codex | hermes | …)'),
+    rawUserPrompt: z.string().min(3).max(20_000).describe('What the user asked in this turn'),
+    aiResponseText: z.string().min(3).max(20_000).describe('The AI\'s response/summary of what it did'),
+    modifiedFiles: z.array(z.string().max(500)).max(50).optional().describe('Files modified in this turn (paths only, when symbol-level diffs are unavailable)'),
+  },
+  async ({ slug, sourcePlatform, rawUserPrompt, aiResponseText, modifiedFiles }) => {
+    const project = await resolveProject(slug)
+    const report = await daemonFetch('POST', '/extract', {
+      projectId: project.id,
+      sourcePlatform,
+      rawUserPrompt,
+      aiResponseText,
+      ...(modifiedFiles && modifiedFiles.length > 0
+        ? { modifiedFilesAstDiff: modifiedFiles.map((path) => ({ path, addedSymbols: [], modifiedSymbols: [] })) }
+        : {}),
+    })
+
+    const delta = report.delta ?? {}
+    const decisions = (delta.newDecisions ?? [])
+      .map((d) => `- [${d.category}] ${d.title}${d.supersedesDecisionId ? ' (SUPERSEDES a previous decision)' : ''}: ${d.rationale.slice(0, 120)}`)
+      .join('\n')
+    const tasks = (delta.taskUpdates ?? [])
+      .map((t) => `- ${t.title} → ${t.status}${t.targetFiles.length > 0 ? ` (${t.targetFiles.join(', ')})` : ''}`)
+      .join('\n')
+    const bugs = (delta.discoveredBugs ?? [])
+      .map((b) => `- [${b.severity}/${b.status}] ${b.title}: ${b.rootCause.slice(0, 120)}`)
+      .join('\n')
+
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          `Memory delta applied (engine: ${report.engineUsed}) — ${report.decisionsCreated} decision(s) created, ${report.decisionsSuperseded} superseded, ${report.requirementsCreated} requirement(s), ${report.tasksUpdated} task update(s) + ${report.tasksCreated} new, ${report.bugsCreated} bug(s) created / ${report.bugsResolved} resolved, ${report.preferencesCreated} preference(s).`,
+          `Turn summary: ${delta.compactTurnSummary ?? ''}`,
+          decisions ? `\nDecisions:\n${decisions}` : '',
+          tasks ? `\nTasks:\n${tasks}` : '',
+          bugs ? `\nBugs:\n${bugs}` : '',
+        ].filter(Boolean).join('\n'),
       }],
     }
   },

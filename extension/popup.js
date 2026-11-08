@@ -94,9 +94,13 @@ async function runRewrite(tab) {
     await chrome.tabs.sendMessage(tab.id, {
       type: 'cortex-rewrite-apply',
       prompt: result.prompt,
-      result: { engineUsed: result.engineUsed, metrics: result.metrics },
+      result: { engineUsed: result.engineUsed, metrics: result.metrics, preExec: result.preExec },
     })
-    note(`Tier-1 prompt injected · ${result.metrics.tokensContextAvoided} tokens avoided`)
+    note(
+      els.engine.value === 'preexec'
+        ? `Local agent done · ~${result.metrics.tokensSavedCloud ?? 0} cloud tokens saved`
+        : `Tier-1 prompt injected · ${result.metrics.tokensContextAvoided} tokens avoided`,
+    )
   } catch (error) {
     note(error.message, false)
   }

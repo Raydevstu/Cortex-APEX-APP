@@ -75,7 +75,7 @@ export function StatCard({
   value: string | number
   sub?: string
   icon?: React.ReactNode
-  accent?: 'violet' | 'emerald' | 'amber' | 'teal' | 'rose'
+  accent?: 'violet' | 'emerald' | 'amber' | 'teal' | 'rose' | 'sky'
 }) {
   const accents: Record<string, string> = {
     violet: 'text-violet-400 bg-violet-500/10',
@@ -83,6 +83,7 @@ export function StatCard({
     amber: 'text-amber-500 bg-amber-500/10',
     teal: 'text-teal-400 bg-teal-500/10',
     rose: 'text-rose-400 bg-rose-500/10',
+    sky: 'text-sky-500 bg-sky-500/10',
   }
   return (
     <Card className="border-border/60 bg-card/60">

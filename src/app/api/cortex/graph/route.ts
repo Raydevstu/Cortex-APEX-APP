@@ -17,7 +17,7 @@ const postSchema = z.discriminatedUnion('op', [
     op: z.literal('add_edge'),
     projectId: z.string().min(1),
     sourceLabel: z.string().trim().min(1).max(120),
-    relation: z.enum(['CONTAINS', 'USES', 'DEPENDS_ON', 'IMPLEMENTS', 'BLOCKED_BY', 'HAS_BUG', 'PREFERS', 'SYNCED_WITH']),
+    relation: z.enum(['CONTAINS', 'USES', 'DEPENDS_ON', 'IMPLEMENTS', 'BLOCKED_BY', 'HAS_BUG', 'PREFERS', 'SYNCED_WITH', 'GOVERNED_BY', 'SUPERSEDES']),
     targetLabel: z.string().trim().min(1).max(120),
   }),
 ])

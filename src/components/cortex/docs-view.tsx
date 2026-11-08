@@ -1,14 +1,15 @@
 'use client'
 
 /**
- * Integration Docs — the auditable contract of the Phase 1 + Phase 2 daemon:
+ * Integration Docs — the auditable contract of the Phase 1 + 2 + 3 daemon:
  * architecture mapping to the blueprint, full API reference, the Master
- * System Prompt, cross-platform integration guides (MCP / git hook /
+ * System Prompts, cross-platform integration guides (MCP / git hook /
  * extension / watcher) and the phase roadmap.
  */
 import {
   Brain, GitBranch, Sparkles, Database, Server, ArrowRight, ScrollText,
   Radar, Plug, History as HistoryIcon, Chrome, Terminal, ArrowRightLeft,
+  Bot, Wrench, Package, ShieldCheck,
 } from 'lucide-react'
 import { SectionCard, CopyButton } from './shared'
 
@@ -44,10 +45,17 @@ const API_REFERENCE: Array<{ method: string; path: string; purpose: string }> = 
   { method: 'POST', path: '/api/cortex/hooks/git', purpose: 'PHASE 2 — Git post-commit webhook {slug, commits[]}' },
   { method: 'POST', path: '/api/cortex/git/ingest', purpose: 'PHASE 2 — Incremental git log backfill {projectId|slug}' },
   { method: 'GET', path: '/api/cortex/git?projectId=', purpose: 'PHASE 2 — Ingested commit log' },
-  { method: 'GET', path: '/api/cortex/settings', purpose: 'Daemon settings (Ollama, embedding model, default engine)' },
+  { method: 'GET', path: '/api/cortex/settings', purpose: 'Daemon settings (Ollama models, default engine, SearXNG)' },
   { method: 'PUT', path: '/api/cortex/settings', purpose: 'Update daemon settings' },
   { method: 'POST', path: '/api/cortex/settings/test', purpose: 'Probe the Ollama endpoint' },
   { method: 'POST', path: '/api/cortex/seed', purpose: 'Idempotent SaaS-CRM demo seed' },
+  { method: 'POST', path: '/api/cortex/preexecute', purpose: 'PHASE 3 — Pre-Execution Local Agent {projectId, prompt, targetPlatform, module, useLlm}' },
+  { method: 'GET', path: '/api/cortex/preexecute?projectId=', purpose: 'PHASE 3 — Agent run history' },
+  { method: 'GET', path: '/api/cortex/preexecute/staged?projectId=&status=', purpose: 'PHASE 3 — Staged artifact queue (content included)' },
+  { method: 'GET', path: '/api/cortex/preexecute/staged/{id}', purpose: 'PHASE 3 — One staged artifact' },
+  { method: 'POST', path: '/api/cortex/preexecute/staged/{id}', purpose: 'PHASE 3 — Staging lifecycle {action: apply|discard|revert} — scope-guard validated' },
+  { method: 'POST', path: '/api/cortex/extract', purpose: 'PHASE 3 — Engine 3 memory extractor {sourcePlatform, rawUserPrompt, aiResponseText, modifiedFilesAstDiff}' },
+  { method: 'GET', path: '/api/cortex/assets', purpose: 'PHASE 3 — Blueprint asset inventory (prompts, JSON grammars, docs cache)' },
 ]
 
 const MASTER_PROMPT_SNIPPET = `You are CORTEX-OS TIER-1 PROMPT ENGINEER — the prompt engineering and task
@@ -77,6 +85,8 @@ const MCP_TOOLS: Array<{ tool: string; purpose: string }> = [
   { tool: 'cortex_rewrite', purpose: 'Tier-1 prompt rewrite (fast | deep | cloud)' },
   { tool: 'cortex_search_history', purpose: 'Semantic episodic search over past interactions' },
   { tool: 'cortex_capture_interaction', purpose: 'Memory extraction from a raw chat transcript' },
+  { tool: 'cortex_preexecute', purpose: 'PHASE 3 — run the Pre-Execution Local Agent (triage → local tools → staged scaffolds → Tier-1 payload)' },
+  { tool: 'cortex_extract_memory', purpose: 'PHASE 3 — Engine 3 turn analysis → ExtractedMemoryDelta (supersedes, task transitions, bugs)' },
 ]
 
 const CLAUDE_CONFIG = `{
@@ -97,6 +107,80 @@ env = { CORTEX_DAEMON_URL = "http://localhost:3000" }`
 export function DocsView() {
   return (
     <div className="space-y-6">
+      {/* Phase 3 architecture */}
+      <SectionCard title="Phase 3 architecture — the Pre-Execution Local Agent & Token Optimizer">
+        <div className="grid gap-3 md:grid-cols-3">
+          <ArchCard
+            icon={<Bot className="size-4" />}
+            title="Engine 1 — Pre-Execution Router — NEW"
+            lines={[
+              'Ollama structured outputs (format: jsonSchema, qwen2.5:1.5b) under the blueprint RouterDecisionSchema',
+              'Deterministic Fast-Path triage (<800ms) when local models are offline',
+              'Execution modes: LOCAL_ONLY · HYBRID_PRE_EXECUTE · CLOUD_DIRECT_WITH_DNA',
+            ]}
+          />
+          <ArchCard
+            icon={<Wrench className="size-4" />}
+            title="Local Tool Runner (0 cloud tokens) — NEW"
+            lines={[
+              'ast_symbol_lookup: real symbol/line/import tables from your workspace files',
+              'schema_inspect · local_docs_search (cached SDK docs + optional SearXNG) · git_diff_summary (real git)',
+              'scaffold_boilerplate: Zod schemas, TS types, route stubs, .env.example keys — derived from your real Prisma schema',
+            ]}
+          />
+          <ArchCard
+            icon={<Sparkles className="size-4" />}
+            title="Engine 2 — Tier-1 Injection — NEW"
+            lines={[
+              'Blueprint-exact payload: [CORTEX-OS SYNC] · [PRE-EXECUTED BY CORTEX LOCAL AGENT — DO NOT REGENERATE] · [AST SCOPE GUARD & ARCHITECTURE LOCK] · [CORE EXECUTION SPECIFICATION]',
+              'decomposedSubtasks with handledBy: COMPLETED_BY_LOCAL_OLLAMA vs ASSIGNED_TO_MAIN_AI',
+              'Ollama Tier1RewrittenPromptSchema grammar with deterministic assembler fallback',
+            ]}
+          />
+          <ArchCard
+            icon={<Package className="size-4" />}
+            title="Staging Area — NEW"
+            lines={[
+              'Scaffolds are NEVER written to your workspace directly — they wait in `staged` state',
+              'Apply enforces the AST Scope Guard: inside root, protected paths refused, create never clobbers',
+              'One-click revert (previous content captured) · .env.example merges only missing keys',
+            ]}
+          />
+          <ArchCard
+            icon={<Brain className="size-4" />}
+            title="Engine 3 — Memory Extractor — NEW"
+            lines={[
+              'Background hook per AI turn: prompt + response + AST diff → ExtractedMemoryDelta',
+              'Supersede detection: course changes mark old decisions superseded (SUPERSEDES graph edge)',
+              'Task continuity (completed only when the diff proves it) + bug discovery/resolution + preferences',
+            ]}
+          />
+          <ArchCard
+            icon={<ShieldCheck className="size-4" />}
+            title="Token Optimizer — NEW"
+            lines={[
+              'Grounded savings: real artifact tokens + staged boilerplate + context the cloud never re-reads',
+              'LOCAL_ONLY tasks cost 0 cloud tokens — the agent finishes them alone',
+              'Sync packet continuity now carries preExecutedByLocalAgent with real completed work',
+            ]}
+          />
+        </div>
+        <pre className="mt-4 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-background/50 p-4 font-mono text-[11px] leading-relaxed text-muted-foreground">
+{`# The Phase 3 flagship, against a real workspace:
+curl -X POST localhost:3000/api/cortex/preexecute \\
+  -H 'Content-Type: application/json' \\
+  -d '{"projectId":"<id>","prompt":"add stripe webhook for subscription renewal and update user db"}'
+
+# → router: HYBRID_PRE_EXECUTE · 7 local tool steps · 3 files staged
+# → injected payload carries verified AST signatures + schema fields + SDK syntax
+
+# Engine 3, after Codex finishes the turn:
+curl -X POST localhost:3000/api/cortex/extract \\
+  -H 'Content-Type: application/json' \\
+  -d '{"projectId":"<id>","sourcePlatform":"codex","rawUserPrompt":"...","aiResponseText":"...", "modifiedFilesAstDiff":[{"path":"src/app/api/webhooks/stripe/route.ts","addedSymbols":["POST"],"modifiedSymbols":[]}]}'`}
+        </pre>
+      </SectionCard>
+
       {/* Phase 2 architecture */}
       <SectionCard title="Phase 2 architecture — the Cross-Platform Sync Engine">
         <div className="grid gap-3 md:grid-cols-3">
@@ -176,7 +260,7 @@ export function DocsView() {
             icon={<Server className="size-4" />}
             title="cortexd daemon API"
             lines={[
-              '26 REST endpoints (see reference below) on the local server',
+              '31 REST endpoints (see reference below) on the local server',
               'Zod-validated with uniform error envelopes',
               'Watchers auto-start on daemon boot (instrumentation hook)',
             ]}
@@ -360,7 +444,7 @@ curl -X POST ${typeof window !== 'undefined' ? window.location.origin : 'http://
           />
           <RoadmapItem
             status="done"
-            title="Phase 2 — Cross-Platform Sync Engine (this build)"
+            title="Phase 2 — Cross-Platform Sync Engine"
             items={[
               'Full CrossPlatformSyncPacket + handoff audit trail + platform flip',
               'MCP server (6 tools) for Codex / OpenCode / Cursor / Windsurf / Claude / Hermes',
@@ -369,12 +453,13 @@ curl -X POST ${typeof window !== 'undefined' ? window.location.origin : 'http://
             ]}
           />
           <RoadmapItem
-            status="next"
-            title="Phase 3 — Pre-Execution Local Agent & Token Optimizer"
+            status="done"
+            title="Phase 3 — Pre-Execution Local Agent & Token Optimizer (this build)"
             items={[
-              'Local Ollama agents with tool execution (file read/write, web search, terminal)',
-              'Smart Router completes boilerplate/research locally, sends only the core delta to the main model',
-              'preExecutedByLocalAgent in the sync packet gets its first real entries',
+              'Engine 1 router + Engine 2 Tier-1 composer under Ollama structured outputs, deterministic Fast-Path fallbacks',
+              'Local tool runner: AST lookup, Prisma schema inspect, cached SDK docs, git diff, staged scaffolds',
+              'Scope-guard-validated staging lifecycle (apply / discard / revert) — the agent never blind-writes',
+              'Engine 3 memory extractor with supersede detection, task continuity and bug resolution',
             ]}
           />
           <RoadmapItem

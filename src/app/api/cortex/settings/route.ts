@@ -8,6 +8,12 @@ const putSchema = z.object({
   ollamaBaseUrl: z.string().trim().url('must be a valid URL, e.g. http://127.0.0.1:11434').optional(),
   ollamaModel: z.string().trim().min(1).max(120).optional(),
   defaultEngine: z.enum(['fast', 'deep', 'cloud']).optional(),
+  // Phase 3 — local-agent model roles + optional SearXNG docs layer:
+  ollamaRouterModel: z.string().trim().min(1).max(120).optional(),
+  ollamaExtractorModel: z.string().trim().min(1).max(120).optional(),
+  searxngUrl: z
+    .union([z.string().trim().url('must be a valid URL, e.g. http://127.0.0.1:8888'), z.literal('')])
+    .optional(),
 })
 
 /** GET /api/cortex/settings — daemon configuration. */

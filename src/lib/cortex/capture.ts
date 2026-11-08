@@ -13,7 +13,7 @@ import type { ExtractedMemory } from './types'
 
 export interface CaptureResult {
   interactionId: string
-  extracted: Array<ExtractedMemory & { id: string; deduped: boolean }>
+  extracted: Array<ExtractedMemory & { id?: string; deduped: boolean }>
   techLinked: string[]
   episode: { summary: string; provider: string; tokensSaved: number } | null
 }

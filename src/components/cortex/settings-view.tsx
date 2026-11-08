@@ -27,11 +27,14 @@ export function SettingsView() {
 
   // Draft pattern: local edits override the persisted settings; no
   // effect-synced state (values derive from `effective` on every render).
-  const [draft, setDraft] = useState<Partial<{ ollamaBaseUrl: string; ollamaModel: string; ollamaEmbeddingModel: string; defaultEngine: EngineKind }> | null>(null)
+  const [draft, setDraft] = useState<Partial<{ ollamaBaseUrl: string; ollamaModel: string; ollamaEmbeddingModel: string; ollamaRouterModel: string; ollamaExtractorModel: string; searxngUrl: string; defaultEngine: EngineKind }> | null>(null)
   const effective = {
     ollamaBaseUrl: draft?.ollamaBaseUrl ?? settingsData?.settings.ollamaBaseUrl ?? 'http://127.0.0.1:11434',
     ollamaModel: draft?.ollamaModel ?? settingsData?.settings.ollamaModel ?? 'qwen2.5-coder:7b',
     ollamaEmbeddingModel: draft?.ollamaEmbeddingModel ?? settingsData?.settings.ollamaEmbeddingModel ?? 'nomic-embed-text',
+    ollamaRouterModel: draft?.ollamaRouterModel ?? settingsData?.settings.ollamaRouterModel ?? 'qwen2.5:1.5b',
+    ollamaExtractorModel: draft?.ollamaExtractorModel ?? settingsData?.settings.ollamaExtractorModel ?? 'llama3.2:3b',
+    searxngUrl: draft?.searxngUrl ?? settingsData?.settings.searxngUrl ?? '',
     defaultEngine: draft?.defaultEngine ?? settingsData?.settings.defaultEngine ?? ('fast' as EngineKind),
   }
   const setField = function <K extends keyof typeof effective>(key: K, value: (typeof effective)[K]) {
@@ -140,6 +143,52 @@ export function SettingsView() {
               Phase 2: captured interactions are embedded for semantic history search. When Ollama is
               reachable this model is used; otherwise the deterministic local hashed embedder takes
               over (offline-safe, same cosine behaviour).
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="ollama-router-model">Engine 1 router model</Label>
+              <Input
+                id="ollama-router-model"
+                value={effective.ollamaRouterModel}
+                onChange={(e) => setField('ollamaRouterModel', e.target.value)}
+                placeholder="qwen2.5:1.5b"
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Phase 3: the fast triage model behind the Pre-Execution Router (blueprint
+                agentRoutingPolicy.fastRouter). Falls back to the deterministic router when offline.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ollama-extractor-model">Engine 3 extractor model</Label>
+              <Input
+                id="ollama-extractor-model"
+                value={effective.ollamaExtractorModel}
+                onChange={(e) => setField('ollamaExtractorModel', e.target.value)}
+                placeholder="llama3.2:3b"
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Phase 3: the background memory extractor behind POST /api/cortex/extract
+                (agentRoutingPolicy.memoryExtractor). Deterministic extraction when offline.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="searxng-url">SearXNG endpoint (optional docs web layer)</Label>
+            <Input
+              id="searxng-url"
+              value={effective.searxngUrl}
+              onChange={(e) => setField('searxngUrl', e.target.value)}
+              placeholder="http://127.0.0.1:8888 — leave empty to use only the cached docs"
+              className="font-mono text-xs"
+            />
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              When set, the local_docs_search tool additionally queries your SearXNG instance for live
+              SDK syntax; any failure silently falls back to the daemon&apos;s cached documentation.
             </p>
           </div>
 

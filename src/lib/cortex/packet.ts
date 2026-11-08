@@ -71,15 +71,18 @@ export async function buildSyncPacket(
     .sort((a, b) => b.importance - a.importance || b.createdAt.getTime() - a.createdAt.getTime())
   const activeTaskMemory = todos[0]
 
+  // Phase 3 (Pre-Execution Local Agent): the active task now carries what the
+  // local agent already completed — real executed tool steps + staged files
+  // from the most recent pre-execution run for this project.
+  const preExecutedByLocalAgent = await collectPreExecutedWork(project.id)
+
   const continuityState: CrossPlatformSyncPacket['continuityState'] = {
     lastCompletedAction: lastEvent ? `${lastEvent.kind}: ${lastEvent.message}` : 'Project initialised — no engine actions recorded yet.',
     activeTask: activeTaskMemory
       ? {
           id: activeTaskMemory.id,
           title: activeTaskMemory.key,
-          // Phase 3 (Pre-Execution Local Agent) will fill this list with work
-          // the local Ollama agent already completed before injection.
-          preExecutedByLocalAgent: [],
+          preExecutedByLocalAgent,
           remainingCoreWork: shorten(activeTaskMemory.value, 140),
         }
       : null,
@@ -182,6 +185,42 @@ export async function buildSyncPacket(
 
 // Backward-compatible alias (Phase 1 callers/tests).
 export const buildStatePacket = buildSyncPacket
+
+// ---------------------------------------------------------------------------
+// Phase 3 — pre-executed work carried in the continuity state
+// ---------------------------------------------------------------------------
+
+/** Real work the local agent already finished for this project: executed tool
+ *  steps + staged files from the latest pre-execution run (24h window), as
+ *  compact one-line facts for the receiving platform. */
+async function collectPreExecutedWork(projectId: string): Promise<string[]> {
+  const run = await db.preExecRun.findFirst({
+    where: { projectId, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    orderBy: { createdAt: 'desc' },
+    include: { stagedArtifacts: { where: { status: { in: ['staged', 'applied'] } }, take: 6 } },
+  })
+  if (!run) return []
+
+  const facts: string[] = []
+  try {
+    const artifacts = JSON.parse(run.artifacts) as Array<{
+      toolName: string
+      ok: boolean
+      summary: string
+    }>
+    for (const artifact of artifacts.filter((a) => a.ok).slice(0, 4)) {
+      facts.push(shorten(artifact.summary, 110))
+    }
+  } catch {
+    // artifacts JSON unreadable — fall through to staged files only
+  }
+  for (const staged of run.stagedArtifacts) {
+    facts.push(
+      `${staged.status === 'applied' ? 'Applied' : 'Staged'} ${staged.kind} at ${staged.targetPath} (${run.executionMode} run)`,
+    )
+  }
+  return facts.slice(0, 6)
+}
 
 // ---------------------------------------------------------------------------
 // Active module inference (the "scoped query" prelude)

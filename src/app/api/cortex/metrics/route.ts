@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 /** GET /api/cortex/metrics — dashboard aggregates + token savings series. */
 export async function GET() {
   try {
-    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes, lastHandoff, watcherStates] = await Promise.all([
+    const [projects, memories, nodes, edges, interactions, promptSessions, handoffs, commits, episodes, lastHandoff, watcherStates, preExecRuns] = await Promise.all([
       db.project.count(),
       db.memory.findMany({ select: { type: true } }),
       db.graphNode.count(),
@@ -29,6 +29,19 @@ export async function GET() {
       db.interaction.count({ where: { embedding: { not: null } } }),
       db.syncHandoff.findFirst({ orderBy: { createdAt: 'desc' } }),
       import('@/lib/cortex/watcher').then((m) => m.watcherStatus()),
+      db.preExecRun.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: {
+          handledLocally: true,
+          tokensSavedCloud: true,
+          tokensContextAvoided: true,
+          stagedCount: true,
+          durationMs: true,
+          executionMode: true,
+          createdAt: true,
+        },
+      }),
     ])
 
     const memoriesByType: Record<string, number> = {}
@@ -89,6 +102,18 @@ export async function GET() {
         episodes,
         watchersRunning: watcherStates.filter((w) => w.running).length,
         lastHandoffAt: lastHandoff ? lastHandoff.createdAt.toISOString() : null,
+      },
+      preExec: {
+        runs: preExecRuns.length,
+        localOnlyRuns: preExecRuns.filter((r) => r.handledLocally).length,
+        cloudTokensSaved: preExecRuns.reduce((s, r) => s + r.tokensSavedCloud, 0),
+        contextTokensAvoided: preExecRuns.reduce((s, r) => s + r.tokensContextAvoided, 0),
+        filesStaged: preExecRuns.reduce((s, r) => s + r.stagedCount, 0),
+        avgDurationMs:
+          preExecRuns.length > 0
+            ? Math.round(preExecRuns.reduce((s, r) => s + r.durationMs, 0) / preExecRuns.length)
+            : 0,
+        lastRunAt: preExecRuns[0] ? preExecRuns[0].createdAt.toISOString() : null,
       },
       tokenSavings: {
         tokensRaw,

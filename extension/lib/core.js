@@ -111,8 +111,48 @@
     return project
   }
 
-  const rewritePrompt = (settings, projectId, prompt, engine) =>
-    daemonFetch(settings, 'POST', '/rewrite', { projectId, prompt, engine: engine || 'fast' })
+  const rewritePrompt = async (settings, projectId, prompt, engine) => {
+    if (engine === 'preexec') {
+      // Phase 3: run the Pre-Execution Local Agent and map its result onto
+      // the unified rewrite contract the popup/content flows consume.
+      const result = await daemonFetch(settings, 'POST', '/preexecute', {
+        projectId,
+        prompt,
+        targetPlatform: 'codex',
+      })
+      return {
+        prompt: result.injectedPrompt || preexecLocalSummary(result),
+        engineUsed: 'preexec',
+        metrics: {
+          tokensRaw: result.metrics.tokensRaw,
+          tokensStructured: 0,
+          tokensContextAvoided: result.metrics.tokensContextAvoided,
+          tokensSavedCloud: result.metrics.tokensSavedCloud,
+          savingsPct: 0,
+          durationMs: result.metrics.durationMs,
+        },
+        preExec: {
+          executionMode: result.router.executionMode,
+          handledCompletelyLocally: result.handledCompletelyLocally,
+          artifacts: result.artifacts,
+          staged: result.staged,
+        },
+      }
+    }
+    return daemonFetch(settings, 'POST', '/rewrite', { projectId, prompt, engine: engine || 'fast' })
+  }
+
+  function preexecLocalSummary(result) {
+    const lines = ['[CORTEX-OS LOCAL AGENT — TASK COMPLETED 100% LOCALLY · 0 CLOUD TOKENS]']
+    for (const artifact of (result.artifacts || []).filter((a) => a.ok)) {
+      lines.push(`- ${artifact.toolName}: ${artifact.summary}`)
+    }
+    for (const staged of result.staged || []) {
+      lines.push(`- STAGED ${staged.kind} → ${staged.targetPath} (apply from the Cortex staging area)`)
+    }
+    lines.push('Review and apply the staged files in the Command Center → Prompt Studio → Staging.')
+    return lines.join('\n')
+  }
 
   const statePacket = (settings, slug, targetPlatform) =>
     daemonFetch(settings, 'GET', `/sync/${encodeURIComponent(slug)}${targetPlatform ? `?target=${encodeURIComponent(targetPlatform)}` : ''}`)
@@ -292,9 +332,12 @@
   // ---- Formatting helpers ------------------------------------------------------
 
   function rewriteToastMessage(result) {
-    const avoided = result && result.metrics ? result.metrics.tokensContextAvoided : 0
+    const metrics = (result && result.metrics) || {}
     const engine = result && result.engineUsed ? result.engineUsed : 'fast'
-    return `CortexOS injected a Tier-1 prompt\nengine: ${engine} · ~${avoided} context tokens avoided`
+    if (engine === 'preexec') {
+      return `CortexOS local agent pre-executed the task\nmode: ${result.preExec ? result.preExec.executionMode : 'HYBRID'} · ~${metrics.tokensSavedCloud || 0} cloud tokens saved`
+    }
+    return `CortexOS injected a Tier-1 prompt\nengine: ${engine} · ~${metrics.tokensContextAvoided || 0} context tokens avoided`
   }
 
   function syncToastMessage(packet) {

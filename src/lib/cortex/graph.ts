@@ -122,7 +122,7 @@ export async function contextSubgraph(
   if (nodes.length === 0) return []
 
   const tokens = tokenize(text)
-  if (tokens.length === 0) return []
+  if (tokens.size === 0) return []
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
   const matched = new Set<string>()
