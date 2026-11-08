@@ -1,0 +1,164 @@
+// CortexOS — Phase 1: The Brain & Prompt Interceptor
+// Storage engine: SQLite (blueprint §5 — local single-folder storage)
+// The Knowledge Graph is modelled as a property-graph triple store
+// (nodes + typed edges), functionally equivalent to the blueprint's
+// embedded graph DB for Phase 1 scale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  rootPath    String?
+  platform    String? // primary platform this project is built on: codex | hermes | opencode | claude | cursor | web | other
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dna            ProjectDna?
+  memories       Memory[]
+  graphNodes     GraphNode[]
+  graphEdges     GraphEdge[]
+  promptSessions PromptSession[]
+  interactions   Interaction[]
+  events         TimelineEvent[]
+}
+
+// PROJECT DNA (blueprint "AI Project DNA" + Pillar knowledge model)
+model ProjectDna {
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  architecturePhilosophy String // prose
+  techStack              String // JSON: TechStackEntry[]
+  codingStandards        String // JSON: CodingStandard[]
+  businessRules          String // JSON: string[]
+  preferredLibraries     String // JSON: PreferredLibrary[]
+  designPatterns         String // JSON: string[]
+  deploymentStrategy     String // prose
+  fileStats              String // JSON: FileStats
+  generationSource       String // scan | manual | hybrid
+  generatedAt            DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// Universal AI Memory Engine (Pillar 1)
+model Memory {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  type       String // decision | architecture | requirement | todo | bug | preference
+  key        String // short label, e.g. "database"
+  value      String // full detail, e.g. "PostgreSQL chosen as primary datastore"
+  status     String @default("active") // active | resolved
+  importance Int    @default(3) // 1..5
+  source     String @default("manual") // manual | interaction | api | seed
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([projectId, type])
+  @@index([projectId, status, importance])
+}
+
+// Project Knowledge Graph (Pillar 2) — strict triples: (source) --[RELATION]--> (target)
+model GraphNode {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  kind  String // root | module | tech | feature | bug | external
+  label String
+  props String  @default("{}") // JSON bag
+
+  edgesFrom GraphEdge[] @relation("edgeSource")
+  edgesTo   GraphEdge[] @relation("edgeTarget")
+
+  @@unique([projectId, kind, label])
+  @@index([projectId])
+}
+
+model GraphEdge {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  sourceId String
+  source   GraphNode @relation("edgeSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  targetId String
+  target   GraphNode @relation("edgeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  relation String // CONTAINS | USES | DEPENDS_ON | IMPLEMENTS | BLOCKED_BY | HAS_BUG | PREFERS | SYNCED_WITH
+  weight   Float   @default(1)
+
+  @@unique([projectId, sourceId, relation, targetId])
+  @@index([projectId])
+}
+
+// Tier-1 Prompt Rewriter sessions + Token Savings Engine accounting (Pillar 8)
+model PromptSession {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  rawPrompt            String
+  rewrittenPrompt      String
+  engine               String // fast | deep | cloud
+  intent               String
+  complexity           Int
+  routing              String // JSON: RoutingDecision
+  decomposition        String? // JSON: Decomposition
+  contextUsed          String // JSON: context summary injected
+  tokensRaw            Int
+  tokensStructured     Int
+  tokensContextAvoided Int
+  durationMs           Int
+  createdAt            DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Episodic Chat Delta source — raw interactions logged for memory extraction
+model Interaction {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title             String?
+  platform          String?
+  rawText           String
+  memoriesExtracted Int @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Development Timeline (Pillar 11)
+model TimelineEvent {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  kind     String   // project.created | dna.generated | memory.captured | prompt.rewritten | graph.updated | interaction.logged | manual
+  message  String
+  meta     String? // JSON
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+// Daemon settings (Ollama endpoint, engine defaults) — key/value JSON store
+model Setting {
+  key   String @id
+  value String // JSON
+}
