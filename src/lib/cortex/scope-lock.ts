@@ -224,6 +224,8 @@ async function persist(projectId: string, state: ScopeLockState): Promise<void> 
     update: { value: JSON.stringify(state) },
     create: { key: scopeLockKey(projectId), value: JSON.stringify(state) },
   })
+  // Keep .cortex files in sync for the external sentinel hook (best-effort).
+  void import('./scope-lock-file').then((m) => m.syncCortexFiles(projectId)).catch(() => undefined)
 }
 
 async function logScopeEvent(

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cortexos-brain": {
+      "command": "node",
+      "args": [
+        "./mcp-server/index.mjs"
+      ],
+      "env": {
+        "CORTEX_DAEMON_URL": "http://localhost:3000",
+        "CORTEX_PROJECT_ROOT": "D:\\Projects\\GLM CORTEXT ORCASTRATOR"
+      }
+    }
+  }
+}

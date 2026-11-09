@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { handleRouteError, ok, parseBody } from '@/lib/cortex/api'
 import { scanWorkspace } from '@/lib/cortex/scan'
 import { composeDna, syncGraphFromDna } from '@/lib/cortex/dna'
+import { syncCortexFiles } from '@/lib/cortex/scope-lock-file'
 import { parseDna } from '@/lib/cortex/rewrite'
 import { z } from 'zod'
 
@@ -103,6 +104,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       create: { projectId: project.id, ...serialized },
     })
 
+    void syncCortexFiles(project.id).catch(() => undefined)
+
     if (!project.rootPath) {
       await db.project.update({ where: { id: project.id }, data: { rootPath } })
     }
@@ -160,6 +163,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     }
 
     await db.projectDna.update({ where: { projectId: project.id }, data: updated })
+    void syncCortexFiles(project.id).catch(() => undefined)
     await db.timelineEvent.create({
       data: {
         projectId: project.id,
