@@ -1,3 +1,4 @@
+import { runPreExecution } from '@/lib/cortex/preexec'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
@@ -46,6 +47,34 @@ server.tool(
         },
       })
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, memoryId: memory.id }) }] }
+    } catch (error) {
+      return { content: [{ type: 'text', text: `error: ${error instanceof Error ? error.message : String(error)}` }], isError: true }
+    }
+  },
+)
+
+server.tool(
+  'cortex_rewrite_and_preexecute',
+  'Rewrite a prompt with Project DNA + scoped graph context and run safe local pre-execution.',
+  {
+    projectSlug: z.string().min(1),
+    prompt: z.string().min(3),
+    targetPlatform: z.string().optional(),
+    module: z.string().optional(),
+    useLlm: z.boolean().optional(),
+  },
+  async ({ projectSlug, prompt, targetPlatform, module, useLlm }) => {
+    try {
+      const project = await db.project.findUnique({ where: { slug: projectSlug } })
+      if (!project) throw new Error('project not found')
+      const result = await runPreExecution({
+        projectId: project.id,
+        prompt,
+        targetPlatform,
+        module,
+        useLlm,
+      })
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, runId: result.runId, rewrittenPrompt: result.injectedPrompt }) }] }
     } catch (error) {
       return { content: [{ type: 'text', text: `error: ${error instanceof Error ? error.message : String(error)}` }], isError: true }
     }
