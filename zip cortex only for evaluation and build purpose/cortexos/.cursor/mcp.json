@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cortexos": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "src/mcp/cortex-mcp-server.ts"
+      ],
+      "env": {
+        "CORTEX_REPO_ROOT": "."
+      }
+    }
+  }
+}

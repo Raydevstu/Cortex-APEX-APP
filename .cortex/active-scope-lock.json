@@ -1,0 +1,11 @@
+{
+  "updatedAt": "2026-11-09T10:10:45.091Z",
+  "allowedWriteFiles": [],
+  "forbiddenPatterns": [
+    ".env",
+    "prisma/migrations/",
+    "src/middleware.ts",
+    "package.json",
+    "bun.lock"
+  ]
+}

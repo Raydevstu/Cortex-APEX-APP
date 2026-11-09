@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cortexos.local/schemas/project-dna.schema.json",
+  "title": "CortexOS Project DNA Schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "project",
+    "techStack",
+    "architecture",
+    "codingStandards",
+    "agentRouting"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string"
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "summary",
+        "repositoryRoot"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "repositoryRoot": {
+          "type": "string"
+        }
+      }
+    },
+    "techStack": {
+      "type": "object",
+      "required": [
+        "languages",
+        "frontend",
+        "backend",
+        "databases",
+        "packageManager",
+        "testRunner"
+      ]
+    },
+    "architecture": {
+      "type": "object",
+      "required": [
+        "pattern",
+        "entryPoints",
+        "immutableRules",
+        "forbiddenPatterns",
+        "protectedPaths"
+      ]
+    },
+    "codingStandards": {
+      "type": "object",
+      "required": [
+        "maxFunctionLines",
+        "maxFileLines",
+        "requireStrictTypes",
+        "errorHandling"
+      ]
+    },
+    "agentRouting": {
+      "type": "object",
+      "required": [
+        "ollamaBaseUrl",
+        "models",
+        "tokenBudget"
+      ]
+    }
+  }
+}

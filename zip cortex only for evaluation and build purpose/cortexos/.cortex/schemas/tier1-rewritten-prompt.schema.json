@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "required": [
+    "objective",
+    "architecturalConstraints",
+    "scopedContextSummary",
+    "allowedWriteFiles",
+    "stepByStepPlan",
+    "acceptanceCriteria",
+    "compiledMarkdownPrompt"
+  ],
+  "properties": {
+    "objective": {
+      "type": "string"
+    },
+    "architecturalConstraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scopedContextSummary": {
+      "type": "string"
+    },
+    "allowedWriteFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stepByStepPlan": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "compiledMarkdownPrompt": {
+      "type": "string"
+    }
+  }
+}

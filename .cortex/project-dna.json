@@ -1,0 +1,23 @@
+{
+  "projectMeta": {
+    "projectId": "cmw93oeoi0006euq0fx49tc96",
+    "name": "CortexOS Audit",
+    "stateHash": "local"
+  },
+  "architectureRules": {
+    "forbiddenPatterns": []
+  },
+  "codingStandards": {
+    "astScopeGuardRules": {
+      "protectedPaths": [
+        ".env",
+        "prisma/migrations/",
+        "src/middleware.ts",
+        "package.json",
+        "bun.lock"
+      ],
+      "disallowAnyType": true,
+      "maxFunctionLines": 80
+    }
+  }
+}

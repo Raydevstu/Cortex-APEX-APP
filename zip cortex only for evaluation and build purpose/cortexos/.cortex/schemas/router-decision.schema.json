@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "intent",
+    "confidence",
+    "targetFiles",
+    "localToolsToRun",
+    "reasoning"
+  ],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": [
+        "LOCAL_ONLY",
+        "HYBRID_PRE_EXEC",
+        "CLOUD_HEAVY"
+      ]
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "targetFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "localToolsToRun": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "git_diff",
+          "ast_outline",
+          "typecheck",
+          "grep_symbol"
+        ]
+      }
+    },
+    "reasoning": {
+      "type": "string"
+    }
+  }
+}

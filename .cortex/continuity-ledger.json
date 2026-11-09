@@ -1,0 +1,28 @@
+{
+  "lastPlatform": "codex",
+  "lastCompletedAction": "Initialized CortexOS DNA (184 files, 3384 AST symbols)",
+  "activeModule": "mod:eslint.config.mjs",
+  "relevantSymbols": [
+    "eslint.config.mjs#__filename [L6-L6]",
+    "eslint.config.mjs#__dirname [L7-L7]",
+    "next.config.ts#nextConfig [L3-L13]",
+    "postcss.config.mjs#config [L1-L3]",
+    "tailwind.config.ts#config [L4-L63]",
+    "bin/cortexos.mjs#detail [L15-L16]",
+    "extension/background.js#Core [L15-L32]",
+    "extension/background.js#runRewriteFlow [L50-L79]",
+    "extension/content.js#Core [L9-L69]",
+    "extension/content.js#found [L17-L21]"
+  ],
+  "recentDecisions": [],
+  "activeTask": {
+    "id": "TASK-INIT",
+    "title": "Repository Indexed & Ready for Cross-Platform Sync",
+    "preExecutedByLocalAgent": [
+      "Full AST Index",
+      "Project DNA Generation"
+    ],
+    "remainingCoreWork": "Ready for developer prompt"
+  },
+  "nextPendingTasks": []
+}

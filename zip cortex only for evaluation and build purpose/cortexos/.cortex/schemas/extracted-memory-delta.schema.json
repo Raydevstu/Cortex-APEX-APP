@@ -1,0 +1,132 @@
+{
+  "type": "object",
+  "required": [
+    "sessionSummary",
+    "decisionsAdded",
+    "tasksUpdated",
+    "bugsResolved",
+    "symbolsModified"
+  ],
+  "properties": {
+    "sessionSummary": {
+      "type": "string"
+    },
+    "decisionsAdded": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "rationale",
+          "moduleId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "moduleId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tasksUpdated": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "filesTouched"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "in_progress",
+              "done"
+            ]
+          },
+          "filesTouched": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "bugsResolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "symptom",
+          "rootCause",
+          "resolution",
+          "symbolName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symptom": {
+            "type": "string"
+          },
+          "rootCause": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "symbolName": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "symbolsModified": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "filePath",
+          "symbolName",
+          "changeType"
+        ],
+        "properties": {
+          "filePath": {
+            "type": "string"
+          },
+          "symbolName": {
+            "type": "string"
+          },
+          "changeType": {
+            "type": "string",
+            "enum": [
+              "added",
+              "modified",
+              "deleted"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

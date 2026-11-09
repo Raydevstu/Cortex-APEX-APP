@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "CortexOS Cross-Platform Sync Bridge",
+  "version": "1.0.0",
+  "description": "Injects zero-bloat CortexOS Project DNA & Graph Context into ChatGPT, Claude, and Web AI interfaces.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:11436/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": [
+        "content-script.js"
+      ]
+    }
+  ]
+}

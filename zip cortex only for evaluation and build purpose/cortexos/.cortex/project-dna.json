@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.0.0",
+  "project": {
+    "id": "proj_cortexos_01",
+    "name": "CortexOS",
+    "summary": "Local-first AI Development OS with Graph Memory, Prompt Engineering, and Multi-Agent Orchestration",
+    "repositoryRoot": "."
+  },
+  "techStack": {
+    "languages": [
+      "TypeScript",
+      "Python"
+    ],
+    "frontend": [
+      "Next.js 15",
+      "React 19",
+      "TailwindCSS",
+      "@xyflow/react"
+    ],
+    "backend": [
+      "Node.js 22",
+      "Fastify",
+      "WebSockets",
+      "Model Context Protocol (MCP)"
+    ],
+    "databases": [
+      "KuzuDB (Embedded Graph)",
+      "SQLite (WAL Queue)"
+    ],
+    "packageManager": "pnpm",
+    "testRunner": "vitest"
+  },
+  "architecture": {
+    "pattern": "Hexagonal Local Daemon + Embedded Property Graph + MCP Server",
+    "entryPoints": {
+      "daemon": "src/watcher/live-session-daemon.ts",
+      "mcpServer": "src/mcp/cortex-mcp-server.ts",
+      "dashboard": "src/dashboard/app/page.tsx"
+    },
+    "immutableRules": [
+      "All cloud LLM calls MUST pass through the Local Pre-Execution Router first.",
+      "Graph mutations MUST happen via validated ExtractedMemoryDelta packets.",
+      "File modifications MUST respect active TaskScopeLock allowedWriteFiles.",
+      "Never store raw API keys in Project DNA or KuzuDB nodes."
+    ],
+    "forbiddenPatterns": [
+      "eval(",
+      "child_process.exec(",
+      "axios",
+      "moment"
+    ],
+    "protectedPaths": [
+      ".cortex/project-dna.json",
+      ".cortex/schema.cypher",
+      ".env",
+      "pnpm-lock.yaml"
+    ]
+  },
+  "codingStandards": {
+    "maxFunctionLines": 60,
+    "maxFileLines": 400,
+    "requireStrictTypes": true,
+    "errorHandling": "Result<T, E> discriminated unions; no silent catch blocks"
+  },
+  "agentRouting": {
+    "ollamaBaseUrl": "http://127.0.0.1:11434",
+    "models": {
+      "router": "qwen2.5-coder:1.5b",
+      "promptEngineer": "qwen2.5-coder:7b",
+      "memoryExtractor": "qwen2.5-coder:3b"
+    },
+    "tokenBudget": {
+      "maxSyncPacketTokens": 450,
+      "maxScopedGraphNodes": 12
+    }
+  }
+}
