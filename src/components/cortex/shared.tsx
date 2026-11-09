@@ -78,25 +78,26 @@ export function StatCard({
   accent?: 'violet' | 'emerald' | 'amber' | 'teal' | 'rose' | 'sky'
 }) {
   const accents: Record<string, string> = {
-    violet: 'text-violet-400 bg-violet-500/10',
-    emerald: 'text-emerald-500 bg-emerald-500/10',
-    amber: 'text-amber-500 bg-amber-500/10',
-    teal: 'text-teal-400 bg-teal-500/10',
-    rose: 'text-rose-400 bg-rose-500/10',
-    sky: 'text-sky-500 bg-sky-500/10',
+    violet: 'text-violet-400 bg-violet-500/[0.08] ring-violet-500/20',
+    emerald: 'text-emerald-400 bg-emerald-500/[0.08] ring-emerald-500/20',
+    amber: 'text-amber-400 bg-amber-500/[0.08] ring-amber-500/20',
+    teal: 'text-teal-400 bg-teal-500/[0.08] ring-teal-500/20',
+    rose: 'text-rose-400 bg-rose-500/[0.08] ring-rose-500/20',
+    sky: 'text-sky-400 bg-sky-500/[0.08] ring-sky-500/20',
   }
   return (
-    <Card className="border-border/60 bg-card/60">
-      <CardContent className="p-4 sm:p-5">
+    <Card className="group relative overflow-hidden border-border/50 bg-card/40 backdrop-blur-sm transition-all hover:bg-card/60 hover:border-border/80">
+      <CardContent className="p-4">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/0 to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-hover:via-primary/20" />
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-            <p className="mt-1.5 truncate font-mono text-2xl font-semibold tabular-nums">{value}</p>
-            {sub ? <p className="mt-1 truncate text-xs text-muted-foreground">{sub}</p> : null}
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground/80">{label}</p>
+            <p className="mt-2 truncate font-mono text-[22px] font-semibold leading-none tracking-tight tabular-nums">{value}</p>
+            {sub ? <p className="mt-1.5 truncate text-[11px] leading-snug text-muted-foreground">{sub}</p> : null}
           </div>
           {icon ? (
-            <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', accents[accent])}>
-              {icon}
+            <div className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg ring-1 transition-colors', accents[accent])}>
+              <span className="size-4">{icon}</span>
             </div>
           ) : null}
         </div>
@@ -117,9 +118,9 @@ export function SectionCard({
   className?: string
 }) {
   return (
-    <Card className={cn('border-border/60 bg-card/60', className)}>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 border-border/60 py-4">
-        <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+    <Card className={cn('overflow-hidden border-border/50 bg-card/40 backdrop-blur-sm', className)}>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/40 bg-card/20 px-4 py-3">
+        <CardTitle className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
           {title}
         </CardTitle>
         {action}
@@ -178,14 +179,14 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none',
         ok
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
-          : 'border-amber-500/30 bg-amber-500/10 text-amber-500',
+          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+          : 'border-amber-500/20 bg-amber-500/10 text-amber-400',
       )}
       title={detail}
     >
-      <span className={cn('size-1.5 rounded-full', ok ? 'bg-emerald-500' : 'bg-amber-500')} />
+      <span className={cn('size-1.5 rounded-full', ok ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]')} />
       {label}
     </span>
   )

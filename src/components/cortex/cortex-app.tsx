@@ -59,7 +59,7 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
       <div className="min-h-screen bg-background text-foreground flex flex-col">
         <div className="flex flex-1">
           {/* ---- Sidebar (desktop) ---- */}
-          <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-border/60 bg-sidebar lg:flex">
+          <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col border-r border-border/40 bg-sidebar lg:flex">
             <SidebarContent view={view} navigate={navigate} />
           </aside>
 
@@ -71,8 +71,8 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
                 aria-label="Close navigation"
                 onClick={() => setMobileNavOpen(false)}
               />
-              <aside className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border/60 bg-sidebar shadow-2xl">
-                <div className="absolute right-3 top-4">
+              <aside className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border/40 bg-sidebar shadow-2xl">
+                <div className="absolute right-3 top-3">
                   <Button variant="ghost" size="icon" className="size-8" onClick={() => setMobileNavOpen(false)} aria-label="Close menu">
                     <X className="size-4" />
                   </Button>
@@ -83,9 +83,9 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
           ) : null}
 
           {/* ---- Main column ---- */}
-          <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
+          <div className="flex min-w-0 flex-1 flex-col lg:pl-[220px]">
             <Header view={view} onOpenMobileNav={() => setMobileNavOpen(true)} />
-            <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-6 sm:px-6">
+            <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-12 pt-5 sm:px-6">
               {view.name === 'command-center' ? <CommandCenterView initialProjectId={initialProjectId} navigate={navigate} /> : null}
               {view.name === 'dashboard' ? <DashboardView navigate={navigate} /> : null}
               {view.name === 'studio' ? <StudioView initialProjectId={view.projectId} initialPrompt={view.prompt} navigate={navigate} /> : null}
@@ -96,11 +96,11 @@ export function CortexApp({ initialProjectId }: CortexAppProps) {
               {view.name === 'settings' ? <SettingsView /> : null}
               {view.name === 'docs' ? <DocsView /> : null}
             </main>
-            <footer className="mt-auto border-t border-border/60 px-6 py-4">
-              <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">CortexOS v0.4.0 — Phase 4 · Visual Command Center &amp; AI CTO Mode</span>
+            <footer className="mt-auto border-t border-border/40 px-6 py-3.5">
+              <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span className="font-mono">CortexOS v0.5.0 — Phase 5 · CLI & Git Memory Loop</span>
                 <span className="flex items-center gap-1.5">
-                  <ShieldCheck className="size-3.5" /> Local-first: all memory, graph and DNA data stays on this daemon
+                  <ShieldCheck className="size-3.5" /> Local-first: all memory and graph stays on this daemon
                 </span>
               </div>
             </footer>
@@ -126,9 +126,9 @@ function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) =>
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 pb-6 pt-6">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/30">
-          <BrainCircuit className="size-5.5 text-primary" />
+      <div className="flex items-center gap-3 px-4 pb-5 pt-5">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/[0.12] ring-1 ring-primary/20">
+          <BrainCircuit className="size-4 text-primary" />
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold tracking-tight">CortexOS</p>
@@ -151,20 +151,21 @@ function SidebarContent({ view, navigate }: { view: View; navigate: (v: View) =>
               )
             }
             className={cn(
-              'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+              'relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors',
               item.active
-                ? 'bg-primary/12 text-primary ring-1 ring-primary/25'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                ? 'bg-white/[0.06] text-foreground'
+                : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
             )}
           >
-            <item.icon className="size-4 shrink-0" />
+            {item.active ? <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-primary" /> : null}
+            <item.icon className="size-[14px] shrink-0" />
             {item.label}
           </button>
         ))}
       </nav>
 
-      <div className="space-y-3 px-5 pb-6">
-        <div className="rounded-lg border border-border/60 bg-card/50 p-3">
+      <div className="space-y-3 px-3 pb-5">
+        <div className="rounded-lg border border-border/40 bg-card/30 p-3">
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             <Zap className="size-3 text-amber-500" /> Roadmap
           </p>
@@ -206,8 +207,8 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
     : 'Integration Docs'
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
+    <header className="sticky top-0 z-30 border-b border-border/40 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+      <div className="mx-auto flex h-12 max-w-7xl items-center gap-3 px-4 sm:px-6">
         <Button
           variant="ghost"
           size="icon"
@@ -217,8 +218,8 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
         >
           <Menu className="size-5" />
         </Button>
-        <h1 className="truncate text-sm font-semibold tracking-tight sm:text-base">{title}</h1>
-        <Badge variant="outline" className="hidden border-primary/30 bg-primary/10 font-mono text-[10px] text-primary sm:inline-flex">
+        <h1 className="truncate text-[13px] font-semibold tracking-tight sm:text-sm">{title}</h1>
+        <Badge variant="outline" className="hidden border-primary/20 bg-primary/10 font-mono text-[10px] tracking-wide text-primary sm:inline-flex">
           cortexd · v0.4.0
         </Badge>
 
@@ -236,7 +237,7 @@ function Header({ view, onOpenMobileNav }: { view: View; onOpenMobileNav: () => 
           <Button
             variant="ghost"
             size="icon"
-            className="size-11"
+            className="size-8"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             aria-label="Toggle theme"
           >
