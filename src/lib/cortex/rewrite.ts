@@ -186,7 +186,7 @@ export async function rewritePrompt(input: {
         engineNote = `Refined by local Ollama model ${input.ollamaModel} (${status.latencyMs ?? 0}ms handshake).`
       } catch (error) {
         engineUsed = 'fast'
-        engineNote = `Ollama generation failed (${error instanceof Error ? error.message : 'unknown error'}) — deterministic Fast-Path output kept.`
+        engineNote = `Ollama at ${input.ollamaBaseUrl} unreachable — generation failed (${error instanceof Error ? error.message : 'unknown error'}) — deterministic Fast-Path output kept.`
       }
     } else {
       engineUsed = 'fast'

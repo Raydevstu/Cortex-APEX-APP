@@ -117,9 +117,12 @@ export async function POST(request: Request) {
       return ok({ plan })
     }
 
-    // ARCHIVE_PLAN
-    const plan = await engine.archivePlan(input.planId)
-    return ok({ plan })
+    if (input.action === 'ARCHIVE_PLAN') {
+      const plan = await engine.archivePlan(input.planId)
+      return ok({ plan })
+    }
+    // Should be unreachable — discriminated union covers all actions
+    return handleRouteError(new Error(`Unknown action: ${(input as { action: string }).action}`))
   } catch (error) {
     return handleRouteError(error)
   }

@@ -278,10 +278,10 @@ async function ensureRoot(projectId: string): Promise<string> {
 async function ensureModuleForPath(projectId: string, relativePath: string, rootId: string): Promise<string> {
   const modules = await db.graphNode.findMany({ where: { projectId, kind: 'module' } })
   let best: { label: string; dir: string } | null = null
-  for (const module of modules) {
-    const dir = safeParse(module.props).dir
+  for (const mod of modules) {
+    const dir = safeParse(mod.props).dir
     if (typeof dir === 'string' && dir.length > 0 && relativePath.startsWith(dir)) {
-      if (!best || dir.length > best.dir.length) best = { label: module.label, dir }
+      if (!best || dir.length > best.dir.length) best = { label: mod.label, dir }
     }
   }
   if (best) return best.label

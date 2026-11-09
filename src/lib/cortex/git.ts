@@ -220,15 +220,15 @@ async function upsertGitFileNode(
 async function moduleForPath(projectId: string, relativePath: string): Promise<string> {
   const modules = await db.graphNode.findMany({ where: { projectId, kind: 'module' } })
   let best: { label: string; dir: string } | null = null
-  for (const module of modules) {
+  for (const mod of modules) {
     let dir: unknown = null
     try {
-      dir = (JSON.parse(module.props) as Record<string, unknown>).dir
+      dir = (JSON.parse(mod.props) as Record<string, unknown>).dir
     } catch {
       dir = null
     }
     if (typeof dir === 'string' && dir.length > 0 && relativePath.startsWith(dir)) {
-      if (!best || dir.length > best.dir.length) best = { label: module.label, dir }
+      if (!best || dir.length > best.dir.length) best = { label: mod.label, dir }
     }
   }
   if (best) return best.label

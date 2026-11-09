@@ -50,6 +50,7 @@ export function CommandCenterView({
   // Default to the most recently active project once projects load.
   useEffect(() => {
     if (!projectId && projectsData && projectsData.projects.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional default selection on first load
       setProjectId(projectsData.projects[0].id)
     }
   }, [projectId, projectsData])
