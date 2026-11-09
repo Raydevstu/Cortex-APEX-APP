@@ -61,7 +61,7 @@ const LEGACY_P2_MARKER = '// >>> cortexos >>>' // Phase 2 node-flavoured hook
 // Argument parsing
 // ---------------------------------------------------------------------------
 
-const VALUE_FLAGS = new Set(['project', 'daemon-url', 'sha', 'dir', 'goal', 'plan-id', 'toggle', 'root', 'slug', 'name', 'platform', 'daemon'])
+const VALUE_FLAGS = new Set(['project', 'daemon-url', 'sha', 'dir', 'goal', 'plan-id', 'toggle', 'root', 'slug', 'name', 'platform', 'daemon', 'port', 'upstream-url'])
 const VARIADIC_FLAGS = new Set(['lock', 'unlock'])
 const BOOLEAN_FLAGS = new Set(['json', 'xml', 'force', 'execute', 'reset', 'list', 'exact', 'help', 'no-wire', 'no-daemon'])
 
@@ -1043,7 +1043,19 @@ export async function runCli(argv = process.argv.slice(2)) {
     return 0
   }
 
-  throw new Error(`unknown command "${domain}" (run "cortexos help")`)
+  if (domain === 'proxy') {
+    const baseUrl = await resolveDaemonUrl(flags['daemon-url'], process.cwd())
+    const action = subcommand || 'status'
+    const port = Number(flags.port ?? 11435)
+    const body: Record<string, unknown> = { action, port }
+    if (flags['upstream-url']) body.upstreamBaseUrl = flags['upstream-url']
+    if (flags.project) body.projectId = flags.project
+    if (flags.platform) body.platform = flags.platform
+    const res = await fetch(`${baseUrl}/api/cortex/proxy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = await res.json()
+    console.log(JSON.stringify(data, null, 2))
+    return res.ok ? 0 : 1
+  }
 }
 
 // ---------------------------------------------------------------------------
