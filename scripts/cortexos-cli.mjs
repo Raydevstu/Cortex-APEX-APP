@@ -61,9 +61,9 @@ const LEGACY_P2_MARKER = '// >>> cortexos >>>' // Phase 2 node-flavoured hook
 // Argument parsing
 // ---------------------------------------------------------------------------
 
-const VALUE_FLAGS = new Set(['project', 'daemon-url', 'sha', 'dir', 'goal', 'plan-id', 'toggle'])
+const VALUE_FLAGS = new Set(['project', 'daemon-url', 'sha', 'dir', 'goal', 'plan-id', 'toggle', 'root', 'slug', 'name', 'platform', 'daemon'])
 const VARIADIC_FLAGS = new Set(['lock', 'unlock'])
-const BOOLEAN_FLAGS = new Set(['json', 'xml', 'force', 'execute', 'reset', 'list', 'exact', 'help'])
+const BOOLEAN_FLAGS = new Set(['json', 'xml', 'force', 'execute', 'reset', 'list', 'exact', 'help', 'no-wire', 'no-daemon'])
 
 export function parseArgs(argv) {
   const positional = []
@@ -953,6 +953,13 @@ USAGE
       Git post-commit -> cortex_extract_memory loop. Fail-open offline
       spooling to .cortex/spool/pending-git-commits.jsonl with FIFO replay.
 
+  cortexos init    [--root <dir>] [--slug <slug>] [--name <name>]
+                   [--platform codex|hermes|...] [--daemon-url <url>]
+                   [--no-wire] [--no-daemon]
+      Bootstrap a repository: fingerprint stack, scan AST, write .cortex/
+      (project-dna, continuity-ledger, active-scope-lock, seed-graph),
+      auto-wire sentinel hook + MCP server, register with the daemon.
+
 OPTIONS
   --project <slug>       CortexOS project (default: CORTEX_PROJECT,
                          .cortex/daemon.json, .cortex/project-dna.json,
@@ -1007,6 +1014,11 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (domain === 'hooks') {
     await handleHooks({ flags, subcommand })
     return 0
+  }
+
+  if (domain === 'init') {
+    const { runInit } = await import('./cortex-init.mjs')
+    return await runInit(process.argv.slice(2))
   }
 
   throw new Error(`unknown command "${domain}" (run "cortexos help")`)
