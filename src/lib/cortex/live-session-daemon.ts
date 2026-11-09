@@ -22,6 +22,8 @@ import { promisify } from 'node:util'
 
 import { db } from '@/lib/db'
 import { extractAndApplyMemoryDelta } from './memory-delta'
+import { extractSymbols as astExtractSymbols } from './ast-scanner'
+import type { ExtractedSymbol } from './ast-scanner'
 import { parseTranscriptLine as normalizeLine } from './transcript-normalizer'
 import type { NormalizedTranscriptEvent } from './transcript-normalizer'
 import type { ExtractSourcePlatform } from './types'
@@ -57,7 +59,7 @@ export class UnattendedLiveSessionDaemon {
   private quietWindowMs: number
 
   private fileByteOffsets = new Map<string, number>()
-  private symbolBaselineCache = new Map<string, Map<string, SymbolEntry>>()
+  private symbolBaselineCache = new Map<string, Map<string, ExtractedSymbol>>()
   private processedTurnHashes = new Set<string>()
   private activeTurns = new Map<string, PendingTurnBuffer>()
 
@@ -311,11 +313,11 @@ export class UnattendedLiveSessionDaemon {
       } catch {
         continue
       }
-      const symbols = extractSymbols(relPath, content)
-      const prevSymbols = this.symbolBaselineCache.get(relPath) || new Map<string, SymbolEntry>()
+      const symbols = astExtractSymbols(relPath, content)
+      const prevSymbols = this.symbolBaselineCache.get(relPath) || new Map<string, ExtractedSymbol>()
       const addedSymbols: string[] = []
       const modifiedSymbols: string[] = []
-      const nextSymbols = new Map<string, SymbolEntry>()
+      const nextSymbols = new Map<string, ExtractedSymbol>()
       for (const sym of symbols) {
         nextSymbols.set(sym.name, sym)
         const prev = prevSymbols.get(sym.name)
@@ -417,8 +419,8 @@ export class UnattendedLiveSessionDaemon {
     for (const relPath of files) {
       try {
         const content = await fs.readFile(path.join(this.projectRoot, relPath), 'utf-8')
-        const symbols = extractSymbols(relPath, content)
-        const symMap = new Map<string, SymbolEntry>()
+        const symbols = astExtractSymbols(relPath, content)
+        const symMap = new Map<string, ExtractedSymbol>()
         for (const s of symbols) symMap.set(s.name, s)
         this.symbolBaselineCache.set(relPath, symMap)
       } catch {
@@ -475,64 +477,3 @@ async function walkSourceFiles(root: string): Promise<string[]> {
   return out
 }
 
-function extractSymbols(filePath: string, content: string): SymbolEntry[] {
-  const lines = content.split('\n')
-  const out: SymbolEntry[] = []
-  const push = (name: string, startLine: number, endLine: number, signature: string) => {
-    if (!name || out.length >= 200) return
-    out.push({ name, startLine, endLine, signature })
-  }
-  // functions
-  const fnRe = /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/g
-  let m
-  while ((m = fnRe.exec(content)) !== null) {
-    const idx = content.slice(0, m.index).split('\n').length
-    push(m[1], idx, idx, `function ${m[1]}(${m[2]})`)
-  }
-  // arrow const
-  const arrowRe = /(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>/g
-  while ((m = arrowRe.exec(content)) !== null) {
-    const idx = content.slice(0, m.index).split('\n').length
-    push(m[1], idx, idx, `const ${m[1]} = (...) =>`)
-  }
-  // classes
-  const classRe = /(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/g
-  while ((m = classRe.exec(content)) !== null) {
-    const idx = content.slice(0, m.index).split('\n').length
-    push(m[1], idx, idx, `class ${m[1]}`)
-  }
-  // python def
-  const pyRe = /^\s*(?:async\s+)?def\s+([A-Za-z_][\w]*)\s*\(([^)]*)\)/gm
-  while ((m = pyRe.exec(content)) !== null) {
-    const idx = content.slice(0, m.index).split('\n').length
-    push(m[1], idx, idx, `def ${m[1]}(${m[2]})`)
-  }
-  // augment endLine by scanning braces (best-effort): keep startLine if no close found
-  for (const s of out) {
-    // find matching closing brace by counting from startLine
-    let depth = 0
-    let started = false
-    let end = s.startLine
-    for (let i = s.startLine - 1; i < lines.length; i++) {
-      const line = lines[i]
-      for (const ch of line) {
-        if (ch === '{') { depth++; started = true }
-        else if (ch === '}') { depth--; if (started && depth === 0) { end = i + 1; break } }
-      }
-      if (started && depth === 0 && end > s.startLine) break
-    }
-    s.endLine = end
-    s.signature = `${s.name} [L${s.startLine}-L${s.endLine}]`
-  }
-  // dedupe by name (keep first)
-  const seen = new Set<string>()
-  const uniq: SymbolEntry[] = []
-  for (const s of out) {
-    if (seen.has(s.name)) continue
-    seen.add(s.name)
-    uniq.push(s)
-  }
-  // filePath unused param retained for future use
-  void filePath
-  return uniq
-}
