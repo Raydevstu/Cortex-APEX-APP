@@ -1021,6 +1021,28 @@ export async function runCli(argv = process.argv.slice(2)) {
     return await runInit(process.argv.slice(2))
   }
 
+  if (domain === 'wrap') {
+    let runAgentWithPtySpool
+    try {
+      ;({ runAgentWithPtySpool } = await import('./cortexos-pty-wrap.mjs'))
+    } catch {
+      try {
+        ;({ runAgentWithPtySpool } = await import('../src/cli/cortexos-pty-wrap.js'))
+      } catch {
+        runAgentWithPtySpool = null
+      }
+    }
+    if (!runAgentWithPtySpool) {
+      console.error('cortexos wrap requires compiled src/cli/cortexos-pty-wrap.js')
+      return 1
+    }
+    const agentName = subcommand || positional[1] || 'hermes'
+    const agentArgs = positional.slice(2)
+    const repoDir = path.resolve(String(flags.dir ?? process.cwd()))
+    runAgentWithPtySpool(agentName as 'hermes' | 'opencode' | 'codex' | 'claude', agentArgs, repoDir)
+    return 0
+  }
+
   throw new Error(`unknown command "${domain}" (run "cortexos help")`)
 }
 
